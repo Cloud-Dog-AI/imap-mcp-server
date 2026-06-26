@@ -1,0 +1,21 @@
+project: imap-mcp-server
+baseline: "1.0.0"
+standards:
+  - PS-00
+  - PS-10
+  - PS-20
+  - PS-40
+  - PS-60
+  - PS-70
+  - PS-75
+  - PS-80
+  - PS-90
+  - PS-95
+platform_packages:
+  - cloud_dog_config
+  - cloud_dog_logging
+  - cloud_dog_api_kit
+  - cloud_dog_idam
+  - cloud_dog_jobs
+  - cloud_dog_vdb
+exceptions: []

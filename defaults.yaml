@@ -1,0 +1,107 @@
+server:
+  server_id: "${HOSTNAME:imap-mcp-local}"
+  auth:
+    mode: "api_key"        # api_key | jwt | api_key+jwt
+  audit:
+    log_path: "./data/audit/audit.jsonl"
+  storage:
+    data_dir: "./data"
+    downloads_dir: "./data/downloads"
+    archive_dir: "./data/archive"
+  limits:
+    max_search_results: 200
+    max_message_bytes: 5000000
+    max_attachment_bytes: 25000000
+    extractor_timeout_sec: 30
+
+api_server:
+  host: "0.0.0.0"
+  port: 8070
+  base_path: "/api/v1"
+
+web_server:
+  host: "0.0.0.0"
+  port: 8071
+  base_path: ""
+
+mcp_server:
+  host: "0.0.0.0"
+  port: 8072
+  base_path: "/mcp"
+  transport: "streamable-http"
+
+a2a_server:
+  host: "0.0.0.0"
+  port: 8073
+  base_path: "/a2a"
+
+sync:
+  schedule_sec: 120
+  retention_enforce_sec: 600
+
+index:
+  schedule_sec: 300
+  enabled: false
+  managed: true
+  backend:
+    type: "chroma"
+    path: "./data/chroma"
+  chunking:
+    max_chars: 2000
+    overlap_chars: 200
+
+rbac:
+  enabled: true
+  roles:
+    admin: ["*"]
+    operator: ["health_status","profile_list","profile_get","sync_*","index_*","archive_*","search_log_*"]
+    reader: ["mail_search","mail_search_since_last","mail_get_message","mail_list_attachments","mail_download_attachment","search_log_list","search_log_get"]
+    writer: ["mail_move_messages","mail_delete_messages","mail_set_flags","mail_mark_read","mail_mark_unread","mail_move_duplicates_since_last_search"]
+
+jobs:
+  backend:
+    preferred: "sql"
+    sql_url: "sqlite:///./data/imap_jobs.db"
+  retry:
+    max_attempts: 3
+    initial_delay_seconds: 1.0
+    max_delay_seconds: 30.0
+  maintenance:
+    claim_timeout_seconds: 60
+    max_age_seconds: 86400
+  dead_letter_queue: "imap_dead_letter"
+  payload_max_bytes: 16384
+
+log:
+  service_instance: "${HOSTNAME:imap-mcp-local}"
+  environment: "${CLOUD_DOG_ENVIRONMENT:dev}"
+  log_folder: "logs"
+  audit_log: "logs/audit.log.jsonl"
+  api_server_log: "logs/api_server.log"
+  web_server_log: "logs/web_server.log"
+  mcp_server_log: "logs/mcp_server.log"
+  a2a_server_log: "logs/a2a_server.log"
+  retention:
+    hot_days: 14
+    cold_days: 60
+    archive_format: "gz"
+  integrity:
+    enabled: true
+    interval_seconds: 300
+    log_file: "logs/audit-integrity.log"
+    hash_algorithm: "sha256"
+  rotation:
+    mode: "size"
+    max_bytes: 104857600
+    backup_count: 10
+    when: "midnight"
+    interval: 1
+    compress: true
+
+# Legacy raw env keys intentionally declared here so cloud_dog_config owns
+# runtime environment resolution.
+API_KEY: ""
+IMAP_API_KEY: ""
+TEST_A2A_API_KEY: ""
+CLOUD_DOG_WEB_LOGIN_USERNAME: ""
+CLOUD_DOG_WEB_LOGIN_PASSWORD: ""

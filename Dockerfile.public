@@ -1,0 +1,85 @@
+# syntax=docker/dockerfile:1
+# imap-mcp-server — Dockerfile.public (PS-97 v1.1 §1.1.3)
+#
+# PUBLIC variant — for external / GitHub-boundary builds (e.g. ghcr.io, Docker Hub).
+# Uses the active package index supplied by the build environment (default public PyPI).
+#
+# Development and CI variants can provide their own package index and CA inputs.
+#
+# Select via: docker-build.sh --variant public
+#
+# NOTE: this Dockerfile builds end-to-end against whatever package index the build
+# environment supplies via docker-build.sh (PIP_INDEX_URL/PYPI_USERNAME/PYPI_PASSWORD ->
+# the pip_conf BuildKit secret). The main/local (internal) index
+# the internal package index carries the cloud-dog-* platform packages, so
+# the public variant builds GREEN today (proven under W28A-861-R3). Publishing the
+# platform packages to the external public index (pypi.org Cloud-Dog-External) is a
+# separate downstream concern tracked as W28A-862/863; it is NOT a prerequisite for
+# this Dockerfile to build.
+
+# ── Builder ──────────────────────────────────────────────────────
+FROM python:3.12-slim AS builder
+
+ARG HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy
+ENV HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} NO_PROXY=${NO_PROXY} \
+    http_proxy=${http_proxy} https_proxy=${https_proxy} no_proxy=${no_proxy}
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Public build — no private CA overlay. System ca-certificates trust store is
+# sufficient for public or boundary-provided package indexes.
+
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
+RUN --mount=type=secret,id=pip_conf,target=/etc/pip.conf \
+    pip install --no-cache-dir \
+      cloud-dog-config cloud-dog-logging "cloud-dog-api-kit==0.13.0" "cloud-dog-idam>=0.5.2,<0.6" cloud-dog-db "cloud-dog-jobs>=0.3.0" "cloud-dog-storage==0.1.4" && \
+    pip install --no-cache-dir \
+      .
+
+# ── Final ────────────────────────────────────────────────────────
+FROM python:3.12-slim
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.vendor="Cloud-Dog, Viewdeck Engineering Limited"
+
+ARG HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy
+ENV HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} NO_PROXY=${NO_PROXY} \
+    http_proxy=${http_proxy} https_proxy=${https_proxy} no_proxy=${no_proxy}
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl netcat-openbsd procps net-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+# Public runtime — no private CA overlay.
+
+WORKDIR /app
+
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+COPY src/ ./src/
+COPY database/ ./database/
+COPY ui/dist/ ./ui/dist/
+COPY pyproject.toml ./
+COPY defaults.yaml config.yaml server_control.sh docker-entrypoint.sh healthcheck.sh ./
+
+RUN mkdir -p /app/logs /app/data/audit /app/data/downloads /app/data/archive /app/.pids /app/certs && \
+    chmod +x /app/docker-entrypoint.sh /app/healthcheck.sh /app/server_control.sh
+
+RUN useradd --system --create-home --uid 10001 appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app/src
+
+EXPOSE 8787 8788
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=5 \
+  CMD /app/healthcheck.sh
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["all"]

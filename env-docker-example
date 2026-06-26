@@ -1,0 +1,68 @@
+# imap-mcp-server — Preprod Docker env example (all-in-one)
+#
+# Intended usage:
+#   set -a; source /opt/iac/Development/cloud-dog-ai/env-vault; set +a
+#   docker compose --env-file env-docker-example --profile all-in-one up -d all-in-one
+#
+# Notes:
+# - This file is AT-compatible for external runtime verification.
+# - Secrets are expected from Vault/runtime environment; do not commit real secrets.
+# - Defaults from defaults.yaml are not repeated unless needed for test/runtime contracts.
+
+# Compose self-reference so services load this same file via env_file.
+ENV_FILE=env-docker-example
+
+# --- Runtime + external test contract ---
+TEST_ENV_TIER=AT
+TEST_RUNTIME_MODE=local-docker
+TEST_USE_EXTERNAL_RUNTIME=true
+TEST_API_BASE_URL=http://127.0.0.1:8083
+TEST_MCP_BASE_URL=http://127.0.0.1:8081
+TEST_API_BASE_PATH=/app/v1
+TEST_MCP_BASE_PATH=/mcp
+TEST_WEB_BASE_PATH=/
+TEST_A2A_BASE_PATH=/a2a
+
+# --- Preprod port overrides (PORTS.md standard) ---
+CLOUD_DOG__API_SERVER__HOST=0.0.0.0
+CLOUD_DOG__API_SERVER__PORT=8083
+CLOUD_DOG__WEB_SERVER__HOST=0.0.0.0
+CLOUD_DOG__WEB_SERVER__PORT=8080
+CLOUD_DOG__MCP_SERVER__HOST=0.0.0.0
+CLOUD_DOG__MCP_SERVER__PORT=8081
+CLOUD_DOG__A2A_SERVER__HOST=0.0.0.0
+CLOUD_DOG__A2A_SERVER__PORT=8082
+
+# --- Auth contract (strict local-docker baseline) ---
+API_KEY=changeme
+IMAP_API_KEY=changeme
+TEST_A2A_API_KEY=changeme
+
+# --- External IMAP connectivity (operations mailbox) ---
+IMAP_OPERATIONS_HOST=mail.example.com
+IMAP_OPERATIONS_PORT=143
+IMAP_OPERATIONS_USERNAME=operations@example.com
+# Preferred: resolved by Vault at runtime. Optional to set explicitly for non-Vault runs.
+IMAP_OPERATIONS_PASSWORD=
+
+# --- OAuth client configuration (used by profile contract/tests) ---
+GOOGLE_CLIENT_ID=test-google-client-id
+GOOGLE_CLIENT_SECRET=
+MS_CLIENT_ID=test-ms-client-id
+MS_CLIENT_SECRET=
+
+# --- Vault integration (required for secure value resolution) ---
+VAULT_ADDR=https://vault.example.com
+VAULT_TOKEN=
+VAULT_MOUNT_POINT=cloud_dog_ai
+VAULT_CONFIG_PATH=config
+
+# --- TLS / CA trust ---
+CA_BUNDLE_PATH=/etc/ssl/certs/ca-certificates.crt
+REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
+CLOUD_DOG__DB__DIALECT=sqlite
+CLOUD_DOG__DB__DATABASE=./data/imap_mcp.db
+GOOGLE_REDIRECT_URL=http://127.0.0.1:8083/auth/google/callback

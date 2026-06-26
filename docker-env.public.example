@@ -1,0 +1,56 @@
+# imap-mcp-server — Docker Environment (PS-97 v1.1 §1.1.4 PUBLIC variant)
+#
+# PUBLIC variant — for external / GitHub-boundary deployments.
+# Uses *.example.com placeholders with <your-...-here> tokens.
+# Deployment-specific variants can provide private endpoints outside this file.
+#
+# Copy to .env and fill in real endpoints + secrets before running.
+# IMPORTANT: never put a real or internal IMAP hostname in this published file.
+# Use mail.example.com here and override at deploy time.
+
+# ── Server Ports ─────────────────────────────────────────────────
+CLOUD_DOG__API_SERVER__HOST=0.0.0.0
+CLOUD_DOG__API_SERVER__PORT=8787
+CLOUD_DOG__WEB_SERVER__HOST=0.0.0.0
+CLOUD_DOG__WEB_SERVER__PORT=8071
+CLOUD_DOG__MCP_SERVER__HOST=0.0.0.0
+CLOUD_DOG__MCP_SERVER__PORT=8788
+CLOUD_DOG__A2A_SERVER__HOST=0.0.0.0
+CLOUD_DOG__A2A_SERVER__PORT=8789
+
+# ── Authentication ───────────────────────────────────────────────
+# Optional static API key for deterministic Docker testing.
+IMAP_API_KEY=<your-api-key-here>
+
+# ── Required Config Placeholders ─────────────────────────────────
+CA_BUNDLE_PATH=/etc/ssl/certs/ca-certificates.crt
+
+# OAuth client credentials (supply from your secret store).
+GOOGLE_CLIENT_ID=<your-google-client-id>
+GOOGLE_CLIENT_SECRET=<your-google-client-secret>
+MS_CLIENT_ID=<your-ms-client-id>
+MS_CLIENT_SECRET=<your-ms-client-secret>
+
+# Generic operations mailbox profile. Leave blank for local surface smoke.
+# When connecting to a real mailbox, set the host to YOUR mail server, e.g.
+# mail.example.com — never a shared or internal hostname.
+IMAP_OPERATIONS_HOST=mail.example.com
+IMAP_OPERATIONS_PORT=993
+IMAP_OPERATIONS_USERNAME=<your-mailbox-username>
+IMAP_OPERATIONS_PASSWORD=<your-mailbox-password>
+CLOUD_DOG__PROFILES__OPERATIONS__IMAP__HOST=mail.example.com
+CLOUD_DOG__PROFILES__OPERATIONS__IMAP__PORT=993
+CLOUD_DOG__PROFILES__OPERATIONS__CREDENTIALS__USERNAME=<your-mailbox-username>
+CLOUD_DOG__PROFILES__OPERATIONS__CREDENTIALS__PASSWORD=<your-mailbox-password>
+
+# ── Logging ──────────────────────────────────────────────────────
+LOG_LEVEL=INFO
+
+# ── Corporate Proxy (optional) ──────────────────────────────────
+HTTP_PROXY=
+HTTPS_PROXY=
+NO_PROXY=127.0.0.1,localhost,.example.com
+
+# ── TLS (optional) ──────────────────────────────────────────────
+# CLOUD_DOG_TLS_CA_BUNDLE=/app/certs/ca.crt
+GOOGLE_REDIRECT_URL=http://127.0.0.1:8787/auth/google/callback

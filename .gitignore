@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+.venv.*/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Private (credentials, secrets)
+private/
+
+# Data (cache, blobs, audit, archive, downloads)
+data/
+
+# Database
+*.db
+*.sqlite3
+
+# Environment files (real ones)
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+.run/
+.tmp-tests/
+logs/
+logs_from_container*/
+working/
+docker-build.log
+*.log
+env-*-secrets
+archive/
+database/
+ui/dist/
+*.pid
+tmp/
+storage/
+node_modules
+*.pyc
+*.tfstate
+working/w28a-*-screenshots/
+node_modules/
+docker-env.local
+*.env.resolved
+**/.session_secret

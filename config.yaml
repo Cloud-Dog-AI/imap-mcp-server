@@ -1,0 +1,123 @@
+profiles:
+  gmail_personal:
+    provider: gmail
+    imap:
+      host: imap.gmail.com
+      port: 993
+      security: ssl
+      tls:
+        ca_bundle_path: "${CA_BUNDLE_PATH}"
+        allow_self_signed: false
+    auth:
+      mode: oauth2
+      oauth:
+        client_id: "${GOOGLE_CLIENT_ID}"
+        client_secret: ""
+        redirect_url: "${GOOGLE_REDIRECT_URL}"
+    sync:
+      retention:
+        max_age_days: 30
+        max_total_bytes: 2147483648
+        max_messages: 50000
+      folder_policy:
+        include_globs: ["INBOX"]
+        exclude_globs: ["[Gmail]/Spam","[Gmail]/Trash"]
+      parts_policy:
+        cache_bodies: true
+        max_body_bytes: 200000
+        cache_attachments: false
+        max_attachment_bytes: 25000000
+    write:
+      enabled: false
+    index:
+      enabled: true
+      managed: true
+      backend:
+        type: chroma
+        path: "./data/chroma"
+    archive:
+      enabled: false
+      root: "./data/archive"
+      rules: []
+  operations:
+    provider: imap_generic
+    imap:
+      host: ""
+      port: 993
+      security: starttls
+      tls:
+        ca_bundle_path: "${CA_BUNDLE_PATH}"
+        allow_self_signed: false
+      timeout_seconds: 15
+    auth:
+      mode: app_password
+    credentials:
+      username: ""
+      password: ""
+    sync:
+      retention:
+        max_age_days: 30
+        max_total_bytes: 2147483648
+        max_messages: 50000
+      folder_policy:
+        include_globs: ["INBOX"]
+        exclude_globs: []
+      parts_policy:
+        cache_headers: true
+        cache_bodies: true
+        max_body_bytes: 200000
+        cache_attachments: false
+        max_attachment_bytes: 25000000
+    write:
+      enabled: false
+    index:
+      enabled: true
+      managed: true
+      backend:
+        type: chroma
+        path: "./data/chroma"
+    archive:
+      enabled: false
+      root: "./data/archive"
+      rules: []
+  operations_cloud_dog:
+    provider: imap_generic
+    imap:
+      host: ""
+      port: 993
+      security: starttls
+      tls:
+        ca_bundle_path: "${CA_BUNDLE_PATH}"
+        allow_self_signed: false
+      timeout_seconds: 15
+    auth:
+      mode: app_password
+    credentials:
+      username: ""
+      password: ""
+    sync:
+      retention:
+        max_age_days: 30
+        max_total_bytes: 2147483648
+        max_messages: 50000
+      folder_policy:
+        include_globs: ["INBOX"]
+        exclude_globs: []
+      parts_policy:
+        cache_headers: true
+        cache_bodies: true
+        max_body_bytes: 200000
+        cache_attachments: false
+        max_attachment_bytes: 25000000
+    write:
+      enabled: false
+    index:
+      enabled: true
+      managed: true
+      backend:
+        type: chroma
+        path: "./data/chroma"
+    archive:
+      enabled: false
+      root: "./data/archive"
+      rules: []

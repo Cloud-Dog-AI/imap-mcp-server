@@ -1,0 +1,87 @@
+# imap-mcp-server — requirements.lock
+#
+# FULL TRANSITIVE LOCK (W28A-861-R3, re-sealed against the internal index).
+#
+# This file pins the COMPLETE resolved dependency closure for the public
+# (Dockerfile.public) runtime image, including the cloud-dog-* platform
+# packages and all transitive dependencies. It was sealed by resolving
+# pyproject.toml [project].dependencies on Python 3.12 against the internal
+# package index (https://pypi.cloud-dog.net/simple/, which carries the
+# platform packages) and capturing the exact installed versions from the
+# resulting image (pip freeze).
+#
+# Pins are INDEX-AGNOSTIC: only name==version is recorded (no index-url, no
+# host, no credentials). The same closure resolves from any index that
+# serves these versions (internal index today; the public/external index
+# once the platform packages are published there — that publish step is
+# tracked downstream as W28A-862/863).
+#
+# Python: 3.12  (matches pyproject.toml requires-python >= 3.12)
+# Scope:  base runtime closure (mirrors Dockerfile.public install set).
+#         Optional extras [imap], [index], [crypto], [dev] are NOT included
+#         here; they are installed separately when those features are enabled.
+#
+# Regeneration (Python 3.12, against any index that serves the platform pkgs):
+#   PYPI_URL=https://pypi.cloud-dog.net/simple/ PYPI_USERNAME=... PYPI_PASSWORD=... \
+#     ./docker-build.sh <version> --variant public
+#   docker run --rm --entrypoint python3 cloud-dog/imap-mcp-server:<tag> \
+#     -m pip freeze   # then drop the self-reference line and sort
+#
+# Direct-dependency consistency check (proves the platform/direct set in this
+# lock still satisfies pyproject.toml [project].dependencies):
+#   python - <<'PY'
+#   import tomllib, re
+#   from packaging.requirements import Requirement
+#   meta = tomllib.load(open("pyproject.toml","rb"))["project"]["dependencies"]
+#   lock = {}
+#   for ln in open("requirements.lock"):
+#       ln = ln.strip()
+#       if not ln or ln.startswith("#") or "==" not in ln: continue
+#       n,v = ln.split("=="); lock[n.replace("_","-").lower()] = v
+#   bad = []
+#   for spec in meta:
+#       r = Requirement(spec); key = r.name.replace("_","-").lower()
+#       if key not in lock or not r.specifier.contains(lock[key]):
+#           bad.append(spec)
+#   print("unsatisfied direct deps:", bad)
+#   PY
+#
+# --- Full resolved dependency closure (name==version, sorted) ---
+alembic==1.18.4
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anyio==4.13.0
+argon2-cffi==25.1.0
+argon2-cffi-bindings==25.1.0
+certifi==2026.5.20
+cffi==2.0.0
+click==8.4.1
+cloud-dog-api-kit==0.13.0
+cloud-dog-config==0.3.2
+cloud_dog_db==0.3.0
+cloud-dog-idam==0.5.2
+cloud-dog-jobs==0.4.1
+cloud-dog-logging==0.4.0
+cloud_dog_storage==0.1.4
+cryptography==48.0.0
+fastapi==0.136.3
+greenlet==3.5.1
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.18
+Mako==1.3.12
+MarkupSafe==3.0.3
+pycparser==3.0
+pydantic==2.13.4
+pydantic_core==2.46.4
+PyJWT==2.13.0
+pyotp==2.9.0
+PyYAML==6.0.3
+redis==8.0.0
+SQLAlchemy==2.0.50
+starlette==1.2.1
+typing_extensions==4.15.0
+typing-inspection==0.4.2
+uvicorn==0.49.0
+websockets==16.0

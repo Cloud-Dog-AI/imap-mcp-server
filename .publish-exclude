@@ -1,0 +1,105 @@
+# imap-mcp-server — publication exclusion list (PS-97 v1.1 §1.1.2)
+# Everything listed here is internal-only and MUST NOT reach the public mirror.
+# Internal operations docs (methods / IP / topology)
+AGENT-LESSONS.md
+RULES.md
+CONTEXT-SUMMARY.md
+docs/PREPROD.md
+docs/DEPLOY-INTERNAL.md
+docs/BUILD.md
+docs/DOCKER.md
+docs/REQUIREMENTS.md
+# W28A-861-R5 / N05: exclude ONLY the top-level retired-artefacts dir, NOT the nested
+# src/imap_hub_core/archive/ subpackage. filter-tree.sh matches each path's BASENAME
+# (fnmatch(basename, pattern)); a bare 'archive/' therefore matched src/imap_hub_core/archive
+# and dropped it from the published tree -> import imap_hub_core.archive.exporter failed at
+# startup. The anchored glob 'archive/*' matches archive/<contents> (rel-path) but never a
+# nested basename, so the subpackage survives. Do NOT revert to bare 'archive/'.
+# Internal verification / vault tooling (reference internal paths + env-vault)
+scripts/
+# Internal/preprod env examples and local secrets
+env-docker-example
+docker-env.local
+docker-env.example
+.env
+.env.example
+# Tests, dev workspaces, vendored material, generated data
+tests/
+.tmp-tests/
+vendor/
+working/
+private/
+data/
+logs/
+.pids/
+test-results/
+# This control file itself
+.publish-exclude
+# === W28A-861-R10 publication-shape readiness (append-only) ===
+# Internal ops / methods / IP docs (carry preprod/terraform/vault/internal-host references)
+RULES.md
+AGENT-LESSONS.md
+CONTEXT-SUMMARY.md
+EXTERNAL-BUILD.md
+BUILD.md
+docs/DEPLOY.md
+docs/DEPLOY-INTERNAL.md
+docs/PREPROD.md
+docs/ENV-REFERENCE.md
+docs/REQ-COVERAGE.md
+docs/REQUIREMENTS.md
+docs/TESTS.md
+docs/ROLES-AND-USECASES.md
+docs/SCOPE-MAP.md
+docs/BUILD.md
+docs/USAGE.md
+docs/API-REFERENCE.md
+docs/MCP-FORWARDING.md
+docs/PARAMETERS.md
+docs/AGENT_RULES.md
+docs/DOCKER.md
+docs/LLM-TEST-RESULTS.md
+docs/WARRANTY-1.0RC01.md
+docs/CROSS-PROJECT-AT-PREREQUISITES.md
+docs/archive/
+docs/INFRASTRUCTURE.md
+REQUIREMENTS.md
+# Internal lockfiles (pin internal index URLs)
+requirements.lock
+requirements.lock.EXCEPTION.md
+# Internal build variants / compose / pip config (public build uses Dockerfile.public)
+Dockerfile.dev
+docker/docker-compose.yml
+docker-compose.local-docker.yml
+docker-compose.local-host.yml
+docker-compose.override.yml
+docker/docker-compose.override.yml
+pip.conf.docker
+# Internal / preprod env examples (carry internal FQDNs / vault refs)
+env-docker-example
+env-example
+env.example
+docker-env.internal.example
+docker-env.public.example
+docker-env.local
+docker-env.example
+.env.example
+# Internal-only scripts (env-vault / /opt/iac / verify-preprod)
+scripts/validate-vault.sh
+scripts/verify_thread_b_t0_t3_preprod.py
+local-docker-server.sh
+# Test trees carry internal hosts / env-vault / preprod references; not part of the public build/run path
+tests/
+# Vendored build artefacts (re-generated at build time; not part of the public source mirror)
+vendor/
+# Committed lane evidence + retired artefacts (root-anchored; nested src subpackages survive)
+evidence/
+/archive/
+# Built UI bundle is a build artefact (regenerated from monorepo source at build time);
+# the public source mirror ships ui/README.md instead of the vendored dist.
+ui/dist/
+# Placeholder runtime dirs (created at runtime; .gitkeep placeholders are not publication material)
+config/.gitkeep
+prompts/
+test-storage/
+.run/
