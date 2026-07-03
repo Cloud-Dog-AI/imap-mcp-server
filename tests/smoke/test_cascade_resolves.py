@@ -66,8 +66,8 @@ def _build_state(tmp_path) -> FileBackedAdminState:
     state.create_group({"group_id": "g-cascade", "name": "cascade-group", "roles": []})
     # Profiles P and Q live in the snapshot profiles map (domain resources).
     snap = state._load()
-    snap.profiles["P"] = {"name": "P", "credentials": {"username": "ops@example.com", "password": "s3cr3t-P"}}
-    snap.profiles["Q"] = {"name": "Q", "credentials": {"username": "ops2@example.com", "password": "s3cr3t-Q"}}
+    snap.profiles["P"] = {"name": "P", "credentials": {"username": "ops@example.com", "password": "<password>"}}
+    snap.profiles["Q"] = {"name": "Q", "credentials": {"username": "ops2@example.com", "password": "<password>"}}
     state._save(snap)
     # The group->resource binding: G may READ mailbox_profile P (NOT Q, NOT write).
     state.create_binding({

@@ -33,7 +33,7 @@ def test_qt11_secrets_never_logged(tmp_path) -> None:
             status="success",
             correlation_id="qt11",
             actor=AuditActor(actor_id="tester"),
-            params={"api_key": "very-secret", "password": "hidden"},
+            params={"api_key": "<api-key>", "password": "<password>"},
         )
     )
     writer.close()

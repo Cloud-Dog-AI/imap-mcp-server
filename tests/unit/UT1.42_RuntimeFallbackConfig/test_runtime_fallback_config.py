@@ -31,7 +31,7 @@ def _fallback_profile() -> dict[str, object]:
         },
         "credentials": {
             "username": "operations@cloud-dog.net",
-            "password": "resolved-unit-password",
+            "password": "<password>",
         },
     }
 @pytest.mark.UT

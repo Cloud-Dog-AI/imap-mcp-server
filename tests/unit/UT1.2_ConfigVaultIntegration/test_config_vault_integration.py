@@ -73,7 +73,7 @@ def test_bind_global_config_accepts_vault_expansion_shape() -> None:
                         "mode": "oauth2",
                         "oauth": {
                             "client_id": "${vault.dev.email.gmail.client_id}",
-                            "client_secret": "${vault.dev.email.gmail.client_secret}",
+                            "client_secret": "<secret>",
                         },
                     },
                     "sync": {

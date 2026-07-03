@@ -81,7 +81,7 @@ def test_config_models_reject_unknown_runtime_fields_and_keep_tls_closed() -> No
                 "host": "imap.example.test",
                 "port": 993,
                 "security": "ssl",
-                "hard_coded_secret": "forbidden",
+                "hard_coded_secret": "<secret>",
             }
         )
 
@@ -190,7 +190,7 @@ def test_audit_records_redact_secrets_and_keep_correlation_identity() -> None:
         correlation_id="corr-123",
         actor=AuditActor(actor_id="alice", roles=["reader"]),
         profile_id="ops",
-        params={"query": "invoice", "api_key": "secret-value"},
+        params={"query": "invoice", "api_key": "<api-key>"},
     )
 
     assert record.correlation_id == "corr-123"

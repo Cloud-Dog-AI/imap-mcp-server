@@ -202,7 +202,7 @@ def test_ut136_admin_routes_encode_profile_and_rbac_payloads(tmp_path) -> None:
     @app.middleware("http")
     async def _inject_admin_context(request, call_next):  # type: ignore[no-untyped-def]
         request.state.roles = {"admin"}
-        request.state.api_key = "seed"
+        request.state.api_key = "<api-key>"
         request.state.request_id = "req-ut136"
         request.state.correlation_id = "corr-ut136"
         return await call_next(request)
@@ -239,7 +239,7 @@ def test_ut136_export_preserves_seed_credentials_when_override_blanks_them(tmp_p
         "operations": {
             "imap": {"host": "mail.cloud-dog.net", "port": 143, "security": "starttls"},
             "auth": {"mode": "app_password"},
-            "credentials": {"username": "operations@cloud-dog.net", "password": "seed-secret"},
+            "credentials": {"username": "operations@cloud-dog.net", "password": "<password>"},
         }
     }
     # Persist an override that keeps the host but blanks the secret credentials,
