@@ -53,7 +53,7 @@ updated: 2026-06-24
 - Service `origin/main`: `b2864f7fd8d0098c0e30fb08bbb5b2aae375b594`.
 - UI monorepo `origin/main`: `d03ab0c556f1e1a9db5ca262b6d18fd48d401b9d`
   (`apps/imap-mcp` canonical routes/nav + `@cloud-dog/ui` `MessageList.tsx` a11y).
-- Image: `registry.cloud-dog.net:443/cloud-dog/imap-mcp-server:latest`
+- Image: `registry.example.invalid/cloud-dog/imap-mcp-server:latest`
   manifest digest
   `sha256:f5a818cbcc50799b9a8abf65cd43d2e20b400daac1504ea44bc470414dffafb2`,
   built image_id

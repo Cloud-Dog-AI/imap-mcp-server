@@ -11,7 +11,7 @@ The cascade is provable (not vacuous) precisely because U is ``restricted`` — 
 access to P comes ONLY through the group binding, never a flat role grant. This is
 the resolver-level proof; the live API/MCP/A2A/WebUI proof is the e2e T3-IMAP-CASCADE.
 
-Run: PYTHONPATH=<worktree>/src:<platform-standards>/packages/backend/platform-idam \\
+Run: PYTHONPATH=<worktree>/src:<platform-package-root>/packages/backend/platform-idam \\
      .venv/bin/python -m pytest tests/smoke/test_cascade_resolves.py -v
 """
 

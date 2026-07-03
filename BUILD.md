@@ -6,7 +6,7 @@ registry: service
 required: must-have
 when-applicable: ""
 template-last-updated: 2026-06-12
-template-owner: platform-standards
+template-owner: public-standards
 
 project: imap-mcp-server
 doc-last-updated: 2026-06-18
@@ -89,7 +89,7 @@ PYPI_URL=https://pypi.org/simple \
 PYPI_USERNAME=build-user \
 PYPI_PASSWORD=build-password \
 CUSTOM_CA_CERT=./certs/ca.pem \
-PUBLICATION_TAG_SUFFIX=gitea-test ./docker-build.sh latest --variant public
+PUBLICATION_TAG_SUFFIX=public-test ./docker-build.sh latest --variant public
 ```
 
 ## Docker Push

@@ -1,7 +1,7 @@
 # imap-mcp-server — Preprod Docker env example (all-in-one)
 #
 # Intended usage:
-#   set -a; source /opt/iac/Development/cloud-dog-ai/env-vault; set +a
+#   set -a; source /path/to/cloud-dog-ai/env-public; set +a
 #   docker compose --env-file env-docker-example --profile all-in-one up -d all-in-one
 #
 # Notes:

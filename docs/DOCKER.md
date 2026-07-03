@@ -6,7 +6,7 @@ registry: service
 required: must-have
 when-applicable: ""
 template-last-updated: 2026-06-12
-template-owner: platform-standards
+template-owner: public-standards
 
 project: imap-mcp-server
 doc-last-updated: 2026-06-18
@@ -22,9 +22,9 @@ doc-conformance-stamp: 2026-06-18T00:00:00Z
 ## Standard Build Path
 
 ```bash
-cd /opt/iac/Development/cloud-dog-ai/imap-mcp-server
+cd /path/to/cloud-dog-ai/imap-mcp-server
 set -a
-source /opt/iac/Development/cloud-dog-ai/env-vault
+source /path/to/cloud-dog-ai/env-public
 set +a
 bash docker-build.sh latest
 ```

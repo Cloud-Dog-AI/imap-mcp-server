@@ -21,7 +21,7 @@
 set -euo pipefail
 
 if [[ -z "${VAULT_ADDR:-}" || -z "${VAULT_TOKEN:-}" || -z "${VAULT_MOUNT_POINT:-}" || -z "${VAULT_CONFIG_PATH:-}" ]]; then
-  echo "Missing Vault environment variables. Source /opt/iac/Development/cloud-dog-ai/env-vault first." >&2
+  echo "Missing Vault environment variables. Source /path/to/cloud-dog-ai/env-public first." >&2
   exit 1
 fi
 

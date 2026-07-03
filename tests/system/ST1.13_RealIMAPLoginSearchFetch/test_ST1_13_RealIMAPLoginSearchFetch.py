@@ -29,7 +29,7 @@ def test_st113_real_imap_login_search_fetch() -> None:
 
     assert settings.host, "IMAP host not configured"
     assert settings.username, "IMAP username not configured"
-    assert settings.password, "IMAP password not configured — source env-vault"
+    assert settings.password, "IMAP password not configured — source env-public"
 
     client: imaplib.IMAP4 | None = None
     try:

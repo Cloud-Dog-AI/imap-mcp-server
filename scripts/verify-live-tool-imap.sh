@@ -19,7 +19,7 @@
 set -euo pipefail
 
 set -a
-source /opt/iac/Development/cloud-dog-ai/env-vault
+source /path/to/cloud-dog-ai/env-public
 set +a
 
 PYTHONPATH=src python3 - <<'PY'

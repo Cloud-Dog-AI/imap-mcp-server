@@ -23,15 +23,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
-# Install platform packages from public Gitea PyPI per §3.2.0.
-ARG PYPI_URL=https://gitea.cloud-dog.net/api/packages/Cloud-Dog-External/pypi/simple
+# Install platform packages from public public Git PyPI per §3.2.0.
+ARG PYPI_URL=https://git.example.invalid/api/packages/Cloud-Dog-External/pypi/simple
 RUN --mount=type=secret,id=pip_conf,target=/etc/pip.conf \
     pip install --no-cache-dir \
-      --trusted-host gitea.cloud-dog.net \
+      --trusted-host git.example.invalid \
       --trusted-host files.pythonhosted.org \
       cloud-dog-config cloud-dog-logging "cloud-dog-api-kit==0.13.0" "cloud-dog-idam>=0.5.2,<0.6" cloud-dog-db "cloud-dog-jobs>=0.3.0" && \
     pip install --no-cache-dir \
-      --trusted-host gitea.cloud-dog.net \
+      --trusted-host git.example.invalid \
       --trusted-host files.pythonhosted.org \
       "."
 

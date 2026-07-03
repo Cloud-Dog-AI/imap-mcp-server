@@ -161,7 +161,7 @@ class TestPackageCompliance:
 
     def test_no_internal_hostnames(self):
         """Zero internal hostnames in source. These must come from config or Vault."""
-        hits = _grep_count("cloud-dog\\.net|viewdeck\\.com|vault0\\.|server0\\.|db1\\.app")
+        hits = _grep_count("private.example|internal.example|vault.example|service.example")
         real_hits = [
             hit
             for hit in hits

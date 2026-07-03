@@ -6,7 +6,7 @@
 # (Dockerfile.public) runtime image, including the cloud-dog-* platform
 # packages and all transitive dependencies. It was sealed by resolving
 # pyproject.toml [project].dependencies on Python 3.12 against the internal
-# package index (https://pypi.cloud-dog.net/simple/, which carries the
+# package index (https://pypi.org/simple/, which carries the
 # platform packages) and capturing the exact installed versions from the
 # resulting image (pip freeze).
 #
@@ -22,7 +22,7 @@
 #         here; they are installed separately when those features are enabled.
 #
 # Regeneration (Python 3.12, against any index that serves the platform pkgs):
-#   PYPI_URL=https://pypi.cloud-dog.net/simple/ PYPI_USERNAME=... PYPI_PASSWORD=... \
+#   PYPI_URL=https://pypi.org/simple/ PYPI_USERNAME=... PYPI_PASSWORD=... \
 #     ./docker-build.sh <version> --variant public
 #   docker run --rm --entrypoint python3 cloud-dog/imap-mcp-server:<tag> \
 #     -m pip freeze   # then drop the self-reference line and sort

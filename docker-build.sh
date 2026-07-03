@@ -101,12 +101,12 @@ echo "=========================================="
 #   public boundary (GitHub/GHCR): pypi.org/simple — platform packages
 #       resolve from the public Cloud-Dog-External namespace or from
 #       GitHub-mirrored source. (default for --variant public)
-#   gitea staging boundary:        set PIP_INDEX_URL to the Gitea public PyPI
+#   public-git staging boundary:        set PIP_INDEX_URL to the public PyPI
 #       index via the caller's environment (PIP_INDEX_URL=...).
 # Never hardcode an internal host here and never use a second index
 # (a fallback index is forbidden by PS-97 §3.3 + §4 — single index-url only).
 if [[ -n "${PIP_INDEX_URL:-}" ]]; then
-  : # honour caller override (e.g. Gitea staging boundary)
+  : # honour caller override (e.g. public Git staging boundary)
 else
   PIP_INDEX_URL="https://pypi.org/simple"
 fi

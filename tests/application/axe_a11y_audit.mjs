@@ -13,11 +13,11 @@
 //   AXE_ENV              environment label (local-docker | preprod)
 //   IMAP_WEB_USERNAME / IMAP_WEB_PASSWORD  admin cookie-login creds
 
-import { chromium } from '/opt/iac/Development/cloud-dog-ai/cloud-dog-ai-ui-monorepo/node_modules/playwright/index.mjs';
+import { chromium } from '/path/to/cloud-dog-ai/cloud-dog-ai-ui-monorepo/node_modules/playwright/index.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const AXE_SRC = '/opt/iac/Development/cloud-dog-ai/cloud-dog-ai-ui-monorepo/node_modules/axe-core/axe.min.js';
+const AXE_SRC = '/path/to/cloud-dog-ai/cloud-dog-ai-ui-monorepo/node_modules/axe-core/axe.min.js';
 const baseUrl = String(process.env.IMAP_WEBUI_BASE_URL || 'http://127.0.0.1:28980').replace(/\/$/, '');
 const outPath = String(process.env.AXE_OUT || 'axe-a11y-evidence.tsv');
 const shotDir = String(process.env.AXE_SHOT_DIR || 'axe-screenshots');

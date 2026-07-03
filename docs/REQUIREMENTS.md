@@ -230,7 +230,7 @@ Profile concept for this project: mailbox profiles defining IMAP connectivity, a
 | CFG-03 | The system SHALL support updating an existing mailbox profile via the API. |
 | CFG-04 | The system SHALL support deleting a mailbox profile via the API. |
 | CFG-05 | Mailbox profile CRUD operations SHALL be available as MCP tools with equivalent functionality. |
-| CFG-06 | Mailbox profile change events SHALL be broadcast via the A2A interface per **PS-72 §A2A-change-events** (canonical envelope `{type, topic, timestamp, payload}`; reference implementation `cloud_dog_api_kit.a2a.events` ≥0.11.0; see platform-standards `docs/standards/PS-72-agent-to-agent.md`). |
+| CFG-06 | Mailbox profile change events SHALL be broadcast via the A2A interface per **PS-72 §A2A-change-events** (canonical envelope `{type, topic, timestamp, payload}`; reference implementation `cloud_dog_api_kit.a2a.events` ≥0.11.0; see public-standards `docs/standards/PS-72-agent-to-agent.md`). |
 | CFG-07 | Mailbox profile CRUD operations SHALL be available in the WebUI with RBAC enforcement. |
 | CFG-08 | The system SHALL support creating, reading, updating, and deleting users via the API. |
 | CFG-09 | The system SHALL support creating, reading, updating, and deleting groups with role assignments via the API. |

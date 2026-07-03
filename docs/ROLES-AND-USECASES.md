@@ -6,7 +6,7 @@ registry: service
 required: must-have
 when-applicable: ""
 template-last-updated: 2026-06-12
-template-owner: platform-standards
+template-owner: public-standards
 
 project: imap-mcp-server
 doc-last-updated: 2026-06-23
@@ -255,7 +255,7 @@ Per PS-82 §9.4 the WebUI is a strict client of the HTTP API (FR-10/FR-11). Ever
 
 ## Recovered domain content — `archive/2026-06-12/USE_CASES.md` (15 lines)
 
-_This section carries forward the full content of the archived predecessor doc verbatim. Topic checklist + SHA256 chain in `cloud-dog-ai-platform-standards/working/evidence/W28C-1710a/per-doc/imap-mcp-server/USE_CASES.md.topics.tsv`. Archive contents are unchanged (sha256 stable)._
+_This section carries forward the full content of the archived predecessor doc verbatim. Topic checklist + SHA256 chain in `public release checklist/working/evidence/W28C-1710a/per-doc/imap-mcp-server/USE_CASES.md.topics.tsv`. Archive contents are unchanged (sha256 stable)._
 
 # IMAP MCP Use Cases
 

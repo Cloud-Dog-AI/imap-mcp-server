@@ -6,7 +6,7 @@ registry: service
 required: must-have
 when-applicable: ""
 template-last-updated: 2026-06-12
-template-owner: platform-standards
+template-owner: public-standards
 
 project: imap-mcp-server
 doc-last-updated: 2026-06-18
@@ -22,10 +22,10 @@ doc-conformance-stamp: 2026-06-18T00:00:00Z
 ## Overview
 
 - Public URL: `https://imapmcpserver0.cloud-dog.net`
-- Container hostname: `imapmcpserver0.app.vpc0.cloud-dog.net`
-- Image: `registry.cloud-dog.net:443/cloud-dog/imap-mcp-server:latest`
-- Terraform container definition: `/opt/iac/cloud-dog-repo/terraform/server0.viewdeck.com/27 MLAgents/imapmcpserver_containers.tf.json`
-- Terraform image reference: `/opt/iac/cloud-dog-repo/terraform/server0.viewdeck.com/27 MLAgents/docker_images.tf.json`
+- Container hostname: `imapmcpserver0.example.invalid`
+- Image: `registry.example.invalid/cloud-dog/imap-mcp-server:latest`
+- Terraform container definition: `/path/to/example-deploy-repo/terraform/docker-host.example.invalid/27 MLAgents/imapmcpserver_containers.tf.json`
+- Terraform image reference: `/path/to/example-deploy-repo/terraform/docker-host.example.invalid/27 MLAgents/docker_images.tf.json`
 - Operator overlay: `private/env-PREPROD`
 
 Health was verified during W28A-962 with:
@@ -47,7 +47,7 @@ curl -fsS https://imapmcpserver0.cloud-dog.net/health | python3 -m json.tool
 
 Preprod runtime values come from:
 
-- Terraform container env in `server0.viewdeck.com/27 MLAgents`
+- Terraform container env in `docker-host.example.invalid/27 MLAgents`
 - shared Vault blob under `cloud_dog_ai/config`
 - local operator overlay `private/env-PREPROD` for pytest and smoke commands against preprod
 
@@ -64,27 +64,27 @@ Relevant Vault branches:
 
 ```bash
 set -a
-source /opt/iac/Development/cloud-dog-ai/env-vault
+source /path/to/cloud-dog-ai/env-public
 set +a
 ```
 
 2. Build and tag the image.
 
 ```bash
-cd /opt/iac/Development/cloud-dog-ai/imap-mcp-server
+cd /path/to/cloud-dog-ai/imap-mcp-server
 bash docker-build.sh latest
 ```
 
 3. Push the image.
 
 ```bash
-docker push registry.cloud-dog.net:443/cloud-dog/imap-mcp-server:latest
+docker push registry.example.invalid/cloud-dog/imap-mcp-server:latest
 ```
 
 4. Apply the Terraform target.
 
 ```bash
-cd '/opt/iac/cloud-dog-repo/terraform/server0.viewdeck.com/27 MLAgents'
+cd '/path/to/example-deploy-repo/terraform/docker-host.example.invalid/27 MLAgents'
 terraform apply -auto-approve \
   -target=docker_image.imapmcpserver \
   -target=docker_container.imapmcpserver0

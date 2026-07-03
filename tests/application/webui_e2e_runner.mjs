@@ -1,4 +1,4 @@
-import { chromium } from '/opt/iac/Development/cloud-dog-ai/cloud-dog-ai-ui-monorepo/node_modules/playwright/index.mjs';
+import { chromium } from '/path/to/cloud-dog-ai/cloud-dog-ai-ui-monorepo/node_modules/playwright/index.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 

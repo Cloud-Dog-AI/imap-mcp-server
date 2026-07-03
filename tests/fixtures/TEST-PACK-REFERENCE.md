@@ -9,7 +9,7 @@ doc-age-policy: 90d
 
 # imap-mcp-server — Test-Pack Reference
 
-> Generated for W28E-1803A from `cloud-dog-ai-platform-standards/test-packs/REGISTRY.tsv`
+> Generated for W28E-1803A from `public release checklist/test-packs/REGISTRY.tsv`
 > per PS-TEST-PACKS-REGISTRY. This file references central pack IDs, source zips, and
 > SHA256 values; it does not copy unpacked dump contents.
 
@@ -25,7 +25,7 @@ external service zip to consume.
 
 `imap-mcp-server` is in scope for the programme-wide packs whose `applies_to_services` is `all`:
 
-| pack_id | pack_kind | source_zip (relative to platform-standards) | sha256 | size_bytes | stream_binding |
+| pack_id | pack_kind | source_zip (relative to public-standards) | sha256 | size_bytes | stream_binding |
 |---|---|---|---|---|---|
 | `TP-COMMON` | shared | `working/evidence/W28C-1711-KNOWLEDGE-FILES/INBOX-ARCHIVE/Test-Design-Audit-Jun26-2026-06-16/common-test-suite.zip` | `3af79a7b19fcd3d4161ad9bff8b79f3fa6dce07e4c8ebf9de74058fd5511c754` | 6598 | A/B/C |
 | `TP-INTEGRATION-EXAMPLES` | cross-service | `working/evidence/W28C-1711-KNOWLEDGE-FILES/INBOX-ARCHIVE/Test-Design-Audit-Jun26-2026-06-16/integration-examples-test-suite.zip` | `50f8aa7463c83635527098ddca8f1f2186085d66cd7516c432aa05052a6d9467` | 11730 | A/B/C |

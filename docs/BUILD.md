@@ -6,7 +6,7 @@ registry: service
 required: must-have
 when-applicable: ""
 template-last-updated: 2026-06-12
-template-owner: platform-standards
+template-owner: public-standards
 
 project: imap-mcp-server
 doc-last-updated: 2026-06-18
@@ -24,13 +24,13 @@ doc-conformance-stamp: 2026-06-18T00:00:00Z
 - Linux shell with `bash`
 - Python `3.10+`
 - Docker with BuildKit and `docker buildx`
-- Access to Cloud-Dog Vault via `/opt/iac/Development/cloud-dog-ai/env-vault`
+- Access to Cloud-Dog Vault via `/path/to/cloud-dog-ai/env-public`
 - Access to private PyPI at `https://<internal-pypi>/simple/`
 
 ## Source Build
 
 ```bash
-cd /opt/iac/Development/cloud-dog-ai/imap-mcp-server
+cd /path/to/cloud-dog-ai/imap-mcp-server
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
@@ -41,7 +41,7 @@ If private package credentials are required in the current shell:
 
 ```bash
 set -a
-source /opt/iac/Development/cloud-dog-ai/env-vault
+source /path/to/cloud-dog-ai/env-public
 set +a
 ```
 
@@ -51,7 +51,7 @@ Preferred local control path:
 
 ```bash
 set -a
-source /opt/iac/Development/cloud-dog-ai/env-vault
+source /path/to/cloud-dog-ai/env-public
 set +a
 ./server_control.sh --env tests/env-AT start all
 ```
@@ -74,7 +74,7 @@ Status and shutdown:
 
 ```bash
 set -a
-source /opt/iac/Development/cloud-dog-ai/env-vault
+source /path/to/cloud-dog-ai/env-public
 set +a
 python3 -m pytest tests/quality --env tests/env-QT -v
 python3 -m pytest tests/unit --env tests/env-UT -v
@@ -88,7 +88,7 @@ Use the repo build script rather than ad hoc `docker build`:
 
 ```bash
 set -a
-source /opt/iac/Development/cloud-dog-ai/env-vault
+source /path/to/cloud-dog-ai/env-public
 set +a
 bash docker-build.sh latest
 ```
@@ -109,9 +109,9 @@ docker push <internal-registry>:443/cloud-dog/imap-mcp-server:latest
 ## Standalone Playwright
 
 ```bash
-cd /opt/iac/Development/cloud-dog-ai/cloud-dog-ai-ui-monorepo
+cd /path/to/cloud-dog-ai/cloud-dog-ai-ui-monorepo
 set -a
-source ../env-vault
+source ../env-public
 set +a
 npx playwright test --config apps/imap-mcp/playwright.config.ts --project=chromium --workers=1
 ```
