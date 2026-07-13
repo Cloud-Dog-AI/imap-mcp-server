@@ -172,6 +172,12 @@ class ProfileConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     provider: Literal["gmail", "o365", "imap_generic"]
+    description: str = Field(
+        default="",
+        description="Human-readable description of this mailbox profile (what it is used for).  "
+        "Optional; existing profiles without one keep working.  Settable via config/env "
+        "(e.g. CLOUD_DOG__PROFILES__<name>__DESCRIPTION) or the admin/WebUI profile payload.",
+    )
     imap: IMAPProfileConfig
     auth: AuthProfileConfig
     credentials: CredentialsConfig = Field(default_factory=CredentialsConfig)

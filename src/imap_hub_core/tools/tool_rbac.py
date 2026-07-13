@@ -38,6 +38,19 @@ _TOOL_PERMISSION_MAP: Dict[str, str] = {
     "index_sync": "imap:index:write",
     "index_rebuild": "imap:index:write",
     "index_status": "imap:index:read",
+    # W28E-1870-D mail-profile change-watch (PS-102 §7 RBAC): read verbs need the
+    # profile read grant, mutating lifecycle verbs need the profile write grant.
+    # Scoped to a mailbox_profile so the RBACBinding cascade applies.
+    "imap_watch_list": "imap:mail:read",
+    "imap_watch_status": "imap:mail:read",
+    "imap_watch_get_batch": "imap:mail:read",
+    "imap_watch_ack": "imap:mail:read",
+    "imap_watch_recover": "imap:mail:read",
+    "imap_watch_create": "imap:mail:write",
+    "imap_watch_pause": "imap:mail:write",
+    "imap_watch_resume": "imap:mail:write",
+    "imap_watch_delete": "imap:mail:write",
+    "imap_watch_test_event": "imap:mail:write",
     # Admin operations
     "admin_list_profiles": "imap:admin:*",
     "admin_create_profile": "imap:admin:*",

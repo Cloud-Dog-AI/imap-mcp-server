@@ -39,10 +39,11 @@ from cloud_dog_logging import get_logger
 from cloud_dog_logging.middleware.audit import AuditMiddleware
 from cloud_dog_logging.correlation import get_correlation_id
 from fastapi import FastAPI, HTTPException, Request, WebSocket
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from starlette.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocketDisconnect
 
+from imap_hub_server import __version__
 from imap_hub_core.audit.context import (
     AuditRequestContext,
     reset_audit_request_context,
@@ -146,6 +147,39 @@ def _request_id(request: Request) -> str:
 
 _TOOL_REQUEST_TIMEOUT_SECONDS = 120.0
 _LOGGER = get_logger(__name__)
+
+
+def _build_watch_service(db_runtime: Any, audit_writer: Any) -> Any:
+    """Build the durable mail-profile change-watch adapter (W28E-1870-D, PS-102 §4.2).
+
+    Consumes the common ``cloud_dog_api_kit.change_stream`` foundation: a
+    ``WatchCoordinator`` with a durable ``SqlJournal`` over the service's real
+    ``cloud_dog_db`` engine (backlog survives restart, CSTREAM-007), live fan-out
+    via a dedicated ``a2a.events`` ``InMemoryEventBroadcaster`` through
+    ``make_broadcast_hook`` (PS-102 §9 reuse), and audit via the shared
+    ``AuditWriter`` (CSTREAM-010). Falls back to a bounded in-memory journal when
+    the DB engine / broadcaster is unavailable so change-watch never blocks
+    startup on a database.
+    """
+    from imap_hub_core.change_stream import WatchService, make_audit_sink
+
+    engine = None
+    try:
+        engine = db_runtime.engine
+    except Exception:  # pragma: no cover - no DB runtime in this tier
+        engine = None
+    broadcaster = None
+    try:
+        from cloud_dog_api_kit.a2a.events import InMemoryEventBroadcaster
+
+        broadcaster = InMemoryEventBroadcaster()
+    except Exception:  # pragma: no cover - broadcaster surface unavailable
+        broadcaster = None
+    return WatchService(
+        engine=engine,
+        broadcaster=broadcaster,
+        audit_sink=make_audit_sink(audit_writer) if audit_writer is not None else None,
+    )
 
 
 def _imap_health(config: Any) -> dict[str, Any]:
@@ -464,7 +498,7 @@ def create_api_app(env_files: list[str] | None = None) -> FastAPI:
         FastAPI,
         platform_create_app(
             title="imap-mcp-server",
-            version="0.1.0",
+            version=__version__,
             description="IMAP tools API transport.",
             api_prefix=api_base_path,
             timeout_seconds=_TOOL_REQUEST_TIMEOUT_SECONDS,
@@ -488,6 +522,11 @@ def create_api_app(env_files: list[str] | None = None) -> FastAPI:
         {
             join_base_path(api_base_path, "/health"),
             join_base_path(LEGACY_API_BASE_PATH, "/health"),
+            # W28E-1863 fix-wave-d (WSC-014): the About-page build-identity /version
+            # must be reachable unauthenticated (like the shared api-kit /version and
+            # /health) so the status bar / About page can render before login.
+            join_base_path(api_base_path, "/version"),
+            join_base_path(LEGACY_API_BASE_PATH, "/version"),
         }
     )
     admin_state = FileBackedAdminState(config.server.storage.data_dir)
@@ -539,6 +578,12 @@ def create_api_app(env_files: list[str] | None = None) -> FastAPI:
         platform_audit_path=log_paths["audit_log_path"],
         integrity_log_path=log_paths["integrity_log_path"],
     )
+    # W28E-1870-D: build the durable mail-profile change-watch adapter (PS-102 §4.2)
+    # over the common change-stream foundation BEFORE the registry so the watch
+    # tools bind to the same instance the REST /v1/watches* surface serves. The
+    # journal is durable via the service ``cloud_dog_db`` engine (survives restart,
+    # CSTREAM-007); live fan-out goes through a dedicated a2a.events broadcaster.
+    watch_service = _build_watch_service(db_runtime, audit_writer)
     tool_registry = build_default_tool_registry(
         profiles=profile_store,
         downloads_dir=config.server.storage.downloads_dir,
@@ -552,6 +597,7 @@ def create_api_app(env_files: list[str] | None = None) -> FastAPI:
         profile_provider=lambda: admin_state.export_profiles(profile_store),
         runtime_fallback_profile=profile_store.get("operations_cloud_dog")
         or profile_store.get("operations"),
+        watch_service=watch_service,
     )
     raw_log_config = getattr(config, "log", {})
     if hasattr(raw_log_config, "model_dump"):
@@ -602,13 +648,26 @@ def create_api_app(env_files: list[str] | None = None) -> FastAPI:
     ]
     _hr = create_health_router(
         application_name="imap-mcp-server",
-        version="0.1.0",
+        version=__version__,
         checks={"db": _db_probe, "imap": _imap_probe, "jobs": _jobs_probe},
     )
     app.include_router(_hr)
     app.router.routes = [r for r in app.router.routes if getattr(r, "path", None) != "/status"]
+    # W28E-1863 WS-A: source the /health endpoint from the health router itself,
+    # not from ``app.router.routes`` after inclusion. FastAPI (>=0.139) includes a
+    # sub-router *lazily* — ``include_router`` appends a single ``_IncludedRouter``
+    # marker instead of flattening each ``APIRoute`` onto ``app.router.routes`` — so
+    # a post-include scan for ``route.path == "/health"`` finds nothing, leaving
+    # ``health_endpoint`` None and SILENTLY skipping the canonical
+    # ``{api_base_path}/health`` and legacy ``/app/v1/health`` re-registration
+    # (canonical + legacy health then 404). ``_hr.routes`` still exposes the flat
+    # health APIRoute + its endpoint callable regardless of inclusion strategy.
     health_endpoint = next(
-        (getattr(route, "endpoint", None) for route in app.router.routes if getattr(route, "path", None) == "/health"),
+        (
+            getattr(route, "endpoint", None)
+            for route in _hr.routes
+            if getattr(route, "path", None) == "/health"
+        ),
         None,
     )
     if health_endpoint is not None:
@@ -812,6 +871,87 @@ def create_api_app(env_files: list[str] | None = None) -> FastAPI:
         )
     )
 
+    def _api_build_identity() -> dict[str, str]:
+        """Build/deploy identity for WSC-014 (config-routed, git-HEAD dev fallback).
+
+        Reads the container build ENV via ``runtime_config_value`` (RULES
+        §1.4.1-compliant — config-routed, no direct-environment read).
+        W28E-1863 fix-wave-d.
+        """
+        commit = runtime_config_value(
+            config, "build.source_commit", "CLOUD_DOG__BUILD__SOURCE_COMMIT"
+        ).strip()
+        if not commit or commit == "unknown":
+            try:
+                import subprocess
+                from pathlib import Path as _Path
+
+                _root = _Path(__file__).resolve().parents[2]
+                _out = subprocess.run(
+                    ["git", "-C", str(_root), "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    check=False,
+                )
+                commit = _out.stdout.strip() if _out.returncode == 0 else ""
+            except Exception:  # noqa: BLE001 - build identity must never crash a request
+                commit = ""
+        branch = runtime_config_value(
+            config, "build.source_branch", "CLOUD_DOG__BUILD__SOURCE_BRANCH"
+        ).strip()
+        if branch == "unknown":
+            branch = ""
+        build_date = runtime_config_value(
+            config, "build.build_date", "CLOUD_DOG__BUILD__BUILD_DATE"
+        ).strip()
+        digest = runtime_config_value(
+            config, "build.container_digest", "CLOUD_DOG__BUILD__CONTAINER_DIGEST"
+        ).strip()
+        return {
+            "source_commit": commit,
+            "source_branch": branch,
+            "build_date": build_date,
+            "container_digest": digest,
+        }
+
+    @app.get(join_base_path(api_base_path, "/version"), include_in_schema=False)
+    async def api_build_version() -> JSONResponse:
+        """Build-identity /version for the shared About page (WSC-014).
+
+        W28E-1863 fix-wave-d / PS-30 UI-R7.3: the FE ``getVersion()`` fetches
+        ``{apiPath}/version`` (``/api/v1/version`` or the ``/webapi/v1/version``
+        proxy alias). The shared cloud_dog_api_kit factory already registers a
+        same-path ``/version`` emitting only application/version/api_version; this
+        route adds source_commit + build_date + deployment identity (config-routed,
+        git-HEAD dev fallback) and is promoted to the FRONT of the router below so
+        it takes precedence (first-match-wins) without forking the factory.
+        """
+        _build = _api_build_identity()
+        return JSONResponse(
+            {
+                "service": "imap-mcp-server",
+                "application": "imap-mcp-server",
+                "version": __version__,
+                "appVersion": __version__,
+                "app_version": __version__,
+                "source_commit": _build["source_commit"],
+                "source_branch": _build["source_branch"],
+                "build_date": _build["build_date"],
+                "container_digest": _build["container_digest"],
+                "environment": environment,
+                "commit": _build["source_commit"],
+            }
+        )
+
+    # W28E-1863 fix-wave-d (WSC-014): promote the build-identity /version route to
+    # the front so it takes precedence over the shared api-kit factory's own
+    # same-path /version endpoint (first-match-wins) without forking the factory.
+    for _idx, _route in enumerate(list(app.router.routes)):
+        if getattr(_route, "endpoint", None) is api_build_version:
+            app.router.routes.insert(0, app.router.routes.pop(_idx))
+            break
+
     @app.get("/runtime-config.js", include_in_schema=False)
     @app.get(f"{WEB_UI_BASE_PATH}/runtime-config.js", include_in_schema=False)
     async def runtime_config() -> Response:
@@ -932,6 +1072,209 @@ def create_api_app(env_files: list[str] | None = None) -> FastAPI:
                 guard.invalidate(existing.subject_id)
         return envelope(result={"ok": ok}, request=request)
 
+    # -- W28E-1870-D mail-profile change-watch REST surface (PS-102 §5.5 / CSTREAM-IMAP) --
+    # Anonymous callers are rejected with 401 by the auth middleware (the routes are
+    # not public). Read verbs need an authenticated role; mutating lifecycle verbs
+    # need a writer/admin role. Tenant/profile ownership is enforced inside the
+    # WatchService adapter (cross-tenant = hard 404, no existence leak).
+    from cloud_dog_api_kit.change_stream.errors import (
+        ChangeStreamError as _ChangeStreamError,
+    )
+    from cloud_dog_api_kit.change_stream.errors import (
+        CursorExpired as _CursorExpired,
+    )
+    from cloud_dog_api_kit.change_stream.errors import (
+        RateLimited as _RateLimited,
+    )
+    from cloud_dog_api_kit.change_stream.errors import (
+        WatchNotFound as _WatchNotFound,
+    )
+
+    _WATCH_WRITE_ROLES = {"admin", "writer", "*"}
+
+    def _watch_error(exc: _ChangeStreamError) -> HTTPException:
+        detail = exc.to_dict() if hasattr(exc, "to_dict") else {"code": "error", "message": str(exc)}
+        if isinstance(exc, _WatchNotFound):
+            return HTTPException(status_code=404, detail=detail)
+        if isinstance(exc, _RateLimited):
+            return HTTPException(status_code=429, detail=detail)
+        if isinstance(exc, _CursorExpired):
+            return HTTPException(status_code=409, detail=detail)
+        return HTTPException(status_code=400, detail=detail)
+
+    def _watch_actor(request: Request) -> str:
+        api_record = request_api_key_record(request, auth_runtime.api_key_manager)
+        actor_id = str(
+            (api_record.owner_user_id if api_record is not None else "")
+            or getattr(request.state, "user_id", "")
+        ).strip()
+        return actor_id or "api-client"
+
+    def _watch_require_write(request: Request) -> None:
+        roles = _effective_roles(request, admin_state, auth_runtime)
+        if not (roles & _WATCH_WRITE_ROLES):
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "unauthorised", "message": "writer or admin role required"},
+            )
+
+    def _watch_tenant(payload_or_query: dict[str, Any]) -> str:
+        return str(payload_or_query.get("profile") or payload_or_query.get("profile_id") or "default")
+
+    async def _watch_body(request: Request) -> dict[str, Any]:
+        try:
+            body = await request.body()
+        except Exception:
+            return {}
+        if not body or not body.strip():
+            return {}
+        try:
+            parsed = json.loads(body)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="invalid JSON body") from exc
+        return parsed if isinstance(parsed, dict) else {}
+
+    async def watches_create(request: Request) -> dict[str, Any]:
+        _watch_require_write(request)
+        payload = await _watch_body(request)
+        tenant = _watch_tenant(payload)
+        try:
+            return watch_service.create_watch(
+                profile_id=tenant,
+                tenant_id=tenant,
+                actor=_watch_actor(request),
+                criteria=payload.get("criteria") if isinstance(payload.get("criteria"), dict) else None,
+                max_batch=int(payload.get("max_batch", 100)),
+                max_inflight=int(payload.get("max_inflight", 4)),
+                journal_max=int(payload.get("journal_max", 1000)),
+                journal_ttl_seconds=(
+                    float(payload["journal_ttl_seconds"])
+                    if payload.get("journal_ttl_seconds") not in (None, "")
+                    else None
+                ),
+            )
+        except _ChangeStreamError as exc:
+            raise _watch_error(exc) from exc
+
+    def watches_list(request: Request, profile: str = "default") -> dict[str, Any]:
+        return {"watches": watch_service.list_watches(tenant_id=str(profile or "default"))}
+
+    def watches_get(watch_id: str, request: Request, profile: str = "default") -> dict[str, Any]:
+        try:
+            return watch_service.get_watch(watch_id, tenant_id=str(profile or "default"))
+        except _ChangeStreamError as exc:
+            raise _watch_error(exc) from exc
+
+    def watches_status(watch_id: str, request: Request, profile: str = "default") -> dict[str, Any]:
+        try:
+            return watch_service.get_status(watch_id, tenant_id=str(profile or "default"))
+        except _ChangeStreamError as exc:
+            raise _watch_error(exc) from exc
+
+    def watches_events(
+        watch_id: str,
+        request: Request,
+        profile: str = "default",
+        since_cursor: str | None = None,
+        max_batch: int | None = None,
+        wait_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        """Bounded pull-batch / long-poll retrieval (PS-102 §5.2 base mode).
+
+        ``wait_seconds`` is accepted and bounded but never holds a worker: an empty
+        batch + current cursor is returned immediately when no events are pending
+        (CSTREAM-002). SSE is additive.
+        """
+        try:
+            return watch_service.get_batch(
+                watch_id,
+                tenant_id=str(profile or "default"),
+                since_cursor=since_cursor or None,
+                max_batch=int(max_batch) if max_batch else None,
+            )
+        except _ChangeStreamError as exc:
+            raise _watch_error(exc) from exc
+
+    async def watches_ack(watch_id: str, request: Request) -> dict[str, Any]:
+        payload = await _watch_body(request)
+        try:
+            return watch_service.ack(
+                watch_id, tenant_id=_watch_tenant(payload), ack_cursor=str(payload["ack_cursor"])
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=422, detail="ack_cursor is required") from exc
+        except _ChangeStreamError as exc:
+            raise _watch_error(exc) from exc
+
+    async def watches_recover(watch_id: str, request: Request) -> dict[str, Any]:
+        payload = await _watch_body(request)
+        try:
+            return watch_service.recover(
+                watch_id, tenant_id=_watch_tenant(payload),
+                since_cursor=payload.get("since_cursor") or None,
+            )
+        except _ChangeStreamError as exc:
+            raise _watch_error(exc) from exc
+
+    async def watches_pause(watch_id: str, request: Request) -> dict[str, Any]:
+        _watch_require_write(request)
+        payload = await _watch_body(request)
+        try:
+            return watch_service.pause(watch_id, tenant_id=_watch_tenant(payload))
+        except _ChangeStreamError as exc:
+            raise _watch_error(exc) from exc
+
+    async def watches_resume(watch_id: str, request: Request) -> dict[str, Any]:
+        _watch_require_write(request)
+        payload = await _watch_body(request)
+        try:
+            return watch_service.resume(watch_id, tenant_id=_watch_tenant(payload))
+        except _ChangeStreamError as exc:
+            raise _watch_error(exc) from exc
+
+    async def watches_test_event(watch_id: str, request: Request) -> dict[str, Any]:
+        _watch_require_write(request)
+        payload = await _watch_body(request)
+        extra = {
+            k: v for k, v in payload.items()
+            if k not in {"profile", "profile_id", "action", "object_ref"}
+        }
+        try:
+            return watch_service.test_event(
+                watch_id,
+                tenant_id=_watch_tenant(payload),
+                action=str(payload.get("action", "created")),
+                object_ref=str(payload.get("object_ref", "test")),
+                **extra,
+            )
+        except _ChangeStreamError as exc:
+            raise _watch_error(exc) from exc
+
+    def watches_delete(watch_id: str, request: Request, profile: str = "default") -> dict[str, Any]:
+        _watch_require_write(request)
+        try:
+            return watch_service.delete(watch_id, tenant_id=str(profile or "default"))
+        except _ChangeStreamError as exc:
+            raise _watch_error(exc) from exc
+
+    # Register on the canonical ``/v1`` (Traefik stripprefix=/api), the resolved
+    # service base path, and the legacy base path so the surface is reachable both
+    # edge-routed and direct.
+    _watch_bases = {"/v1", api_base_path, LEGACY_API_BASE_PATH}
+    for _wb in _watch_bases:
+        _hidden = _wb != "/v1"
+        app.post(f"{_wb}/watches", tags=["watches"], include_in_schema=not _hidden)(watches_create)
+        app.get(f"{_wb}/watches", tags=["watches"], include_in_schema=not _hidden)(watches_list)
+        app.get(f"{_wb}/watches/{{watch_id}}", tags=["watches"], include_in_schema=not _hidden)(watches_get)
+        app.get(f"{_wb}/watches/{{watch_id}}/status", tags=["watches"], include_in_schema=not _hidden)(watches_status)
+        app.get(f"{_wb}/watches/{{watch_id}}/events", tags=["watches"], include_in_schema=not _hidden)(watches_events)
+        app.post(f"{_wb}/watches/{{watch_id}}/ack", tags=["watches"], include_in_schema=not _hidden)(watches_ack)
+        app.post(f"{_wb}/watches/{{watch_id}}/recover", tags=["watches"], include_in_schema=not _hidden)(watches_recover)
+        app.post(f"{_wb}/watches/{{watch_id}}/pause", tags=["watches"], include_in_schema=not _hidden)(watches_pause)
+        app.post(f"{_wb}/watches/{{watch_id}}/resume", tags=["watches"], include_in_schema=not _hidden)(watches_resume)
+        app.post(f"{_wb}/watches/{{watch_id}}/test-event", tags=["watches"], include_in_schema=not _hidden)(watches_test_event)
+        app.delete(f"{_wb}/watches/{{watch_id}}", tags=["watches"], include_in_schema=not _hidden)(watches_delete)
+
     @app.get("/mcp/tools", tags=["tools"])
     @app.get(join_base_path(api_base_path, "/tools"), tags=["tools"])
     @app.get(f"{LEGACY_API_BASE_PATH}/tools", tags=["tools"], include_in_schema=False)
@@ -979,6 +1322,7 @@ def create_api_app(env_files: list[str] | None = None) -> FastAPI:
     app.state.config = config
     app.state.profile_store = profile_store
     app.state.tool_registry = tool_registry
+    app.state.watch_service = watch_service
     app.state.auth_runtime = auth_runtime
     app.state.audit_writer = audit_writer
     app.state.db_runtime = db_runtime
@@ -1017,19 +1361,35 @@ def create_api_app(env_files: list[str] | None = None) -> FastAPI:
     # W28A-876: mount the canonical SHARED cloud_dog_idam idam_v1_router (resource-registry +
     # rbac-bindings). Mounted at both no-prefix and api_base_path so it resolves regardless of
     # the api-kit base-path style. ONE estate-wide implementation.
+    # W28E-1863 fix-wave-e: mount the router FIRST and keep the optional engine
+    # setter import/call fully independent. ``set_idam_v1_engine`` does NOT exist
+    # in the pinned/deployed cloud_dog_idam (0.5.3); importing it in the SAME
+    # statement as ``idam_v1_router`` raised ImportError, which the outer
+    # ``except Exception: pass`` swallowed BEFORE the mount ran — so BOTH the
+    # rbac-bindings AND resource-registry routes were never mounted (RBAC page
+    # showed two "Not Found" banners). Mounting the router is not conditional on
+    # the engine setter being present.
     try:
         from cloud_dog_idam.api.fastapi.router import (
             idam_v1_router as _idam_v1_router,
-            set_idam_v1_engine as _set_idam_v1_engine,
         )
 
-        try:
-            _set_idam_v1_engine(getattr(auth_runtime, "engine", None))
-        except Exception:
-            pass
         app.include_router(_idam_v1_router, include_in_schema=False)
         if api_base_path:
             app.include_router(_idam_v1_router, prefix=api_base_path, include_in_schema=False)
+        # Best-effort engine injection — optional across idam versions; a missing
+        # symbol or a raising call MUST NOT unmount the router above.
+        try:
+            from cloud_dog_idam.api.fastapi.router import (
+                set_idam_v1_engine as _set_idam_v1_engine,
+            )
+
+            try:
+                _set_idam_v1_engine(getattr(auth_runtime, "engine", None))
+            except Exception:
+                pass
+        except Exception:
+            pass
     except Exception:
         pass
 

@@ -54,7 +54,7 @@ CANONICAL_WEBUI_ROUTES: tuple[str, ...] = (
     "/login",
     "/profiles",
     "/mailbox-workspace",
-    "/search-retrieve",
+    "/search",
     "/audit-log",
     "/admin/users",
     "/admin/groups",
@@ -68,6 +68,7 @@ CANONICAL_WEBUI_ROUTES: tuple[str, ...] = (
     "/system/settings",
     "/system/gmail-settings",
     "/system/about",
+    "/system/watches",  # W28E-1870-D: mail change-watch page (PS-102 §10)
 )
 
 # Flat legacy alias -> canonical path (308). The ``/ui/*`` historical prefix is
@@ -75,6 +76,8 @@ CANONICAL_WEBUI_ROUTES: tuple[str, ...] = (
 # entry per route here.
 LEGACY_WEBUI_REDIRECTS: dict[str, str] = {
     "/dashboard": "/",
+    "/source-connections": "/profiles",
+    "/search-retrieve": "/search",
     "/diagnostics-audit": "/audit-log",
     "/idam/users": "/admin/users",
     "/idam/groups": "/admin/groups",
@@ -83,12 +86,15 @@ LEGACY_WEBUI_REDIRECTS: dict[str, str] = {
     "/idam/rbac": "/admin/rbac",
     "/admin-control": "/admin/users",
     "/api-docs": "/developer/api-docs",
+    "/docs": "/developer/api-docs",
+    "/openapi": "/developer/api-docs",
     "/mcp-console": "/developer/mcp-console",
     "/a2a-console": "/developer/a2a-console",
     "/jobs": "/system/jobs",
     "/settings": "/system/settings",
     "/gmail-settings": "/system/gmail-settings",
     "/about": "/system/about",
+    "/watches": "/system/watches",
     "/mutation-gating": "/",
     "/legacy-diagnostics": "/audit-log",
 }
@@ -142,21 +148,23 @@ def _redirect_preserving(request: Request, target: str) -> RedirectResponse:
 def install_canonical_webui_redirects(app: FastAPI, *, base_path: str = "") -> None:
     """Register the 308 legacy-alias → canonical WebUI redirect middleware.
 
-    Only GET/HEAD browser navigations are redirected; non-WebUI surfaces
-    (``is_api_surface_path``) are never touched. ``base_path`` is the surface
-    base prefix (empty for the canonical Web origin) and is stripped before
-    matching, then re-applied to the redirect target.
+    Only GET/HEAD browser navigations are redirected. Exact legacy aliases are
+    matched before the non-WebUI surface guard so historical ``/docs`` and
+    ``/openapi`` redirect while ``/openapi.json`` remains a schema endpoint.
+    ``base_path`` is the surface base prefix (empty for the canonical Web origin)
+    and is stripped before matching, then re-applied to the redirect target.
     """
 
     @app.middleware("http")
     async def canonical_webui_redirects(request: Request, call_next):
         if request.method in ("GET", "HEAD"):
             relative = strip_base_path(request.url.path, base_path) if base_path else request.url.path
-            if not is_api_surface_path(relative):
-                target = canonical_redirect_target(relative)
-                if target is not None and target != relative:
-                    full_target = join_base_path(base_path, target) if base_path else target
-                    return _redirect_preserving(request, full_target)
+            target = canonical_redirect_target(relative)
+            if target is not None and target != relative:
+                full_target = join_base_path(base_path, target) if base_path else target
+                return _redirect_preserving(request, full_target)
+            if is_api_surface_path(relative):
+                return await call_next(request)
         return await call_next(request)
 
 

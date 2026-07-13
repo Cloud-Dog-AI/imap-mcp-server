@@ -18,7 +18,9 @@
 # this Dockerfile to build.
 
 # ── Builder ──────────────────────────────────────────────────────
-FROM python:3.12-slim AS builder
+# W28R-3015 supply-chain remediation: python:3.12-slim -> python:3.13-slim
+# (CPython 3.13.14) clears the fixable CPython High/Critical CVEs.
+FROM python:3.13-slim AS builder
 
 ARG HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy
 ENV HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} NO_PROXY=${NO_PROXY} \
@@ -37,12 +39,13 @@ COPY pyproject.toml README.md ./
 COPY src/ ./src/
 RUN --mount=type=secret,id=pip_conf,target=/etc/pip.conf \
     pip install --no-cache-dir \
-      cloud-dog-config cloud-dog-logging "cloud-dog-api-kit==0.13.0" "cloud-dog-idam>=0.5.2,<0.6" cloud-dog-db "cloud-dog-jobs>=0.3.0" "cloud-dog-storage==0.1.4" && \
+      "cloud-dog-config==0.3.4" "cloud-dog-logging>=0.4.1" "cloud-dog-api-kit[change-stream-db]>=0.14.0" "cloud-dog-idam==0.5.3" "cloud-dog-llm==0.4.0" "cloud-dog-db>=0.3.2" "cloud-dog-jobs>=0.4.2" "cloud-dog-storage==0.1.8" && \
     pip install --no-cache-dir \
       .
 
 # ── Final ────────────────────────────────────────────────────────
-FROM python:3.12-slim
+# W28R-3015: Python 3.13 runtime (see builder stage note).
+FROM python:3.13-slim
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.vendor="Cloud-Dog, Viewdeck Engineering Limited"
 
@@ -58,7 +61,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 COPY src/ ./src/

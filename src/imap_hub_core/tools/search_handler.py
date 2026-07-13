@@ -37,7 +37,15 @@ class SearchToolHandlers(ImapToolHandlersBase):
                 if bool((current_profiles.get(profile_id) or {}).get("enabled", True))
             ]
         profiles = [profile_id for profile_id in profiles if self._check_profile_access(profile_id)]
-        return self._ok_envelope(result={"profiles": profiles})
+        # Additive: surface each visible profile's human description alongside the
+        # ID list.  ``profiles`` remains a list[str] for backward compatibility;
+        # ``descriptions`` is a {profile_id: description} map (empty string when a
+        # profile carries no description).
+        descriptions = {
+            profile_id: str((current_profiles.get(profile_id) or {}).get("description", "") or "")
+            for profile_id in profiles
+        }
+        return self._ok_envelope(result={"profiles": profiles, "descriptions": descriptions})
 
     def mail_probe(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Probe IMAP connectivity for a configured profile."""

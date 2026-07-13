@@ -306,3 +306,81 @@ class MailDeleteMessagesInput(BaseModel):
     profile_id: str
     uids: list[str]
     folder: str = "INBOX"
+
+
+# ---------------------------------------------------------------------------
+# W28E-1870-D mail-profile change-watch tool inputs (PS-102 §5.3 / CSTREAM-IMAP).
+# The watch tools consume the common change-stream foundation; the tenant scope
+# is the mail profile. ``criteria`` is validated by the adapter's criteria matcher
+# (folder/sender/recipient/subject/header/body/attachment/flags/glob/regex).
+# ---------------------------------------------------------------------------
+class WatchCreateInput(BaseModel):
+    """Input schema for creating a mail-profile change-watch."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: str
+    criteria: dict[str, Any] = Field(default_factory=dict)
+    max_batch: int = 100
+    max_inflight: int = 4
+    journal_max: int = 1000
+    journal_ttl_seconds: float | None = None
+
+
+class WatchIdInput(BaseModel):
+    """Input schema for a change-watch operation addressed by watch id."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: str
+    watch_id: str
+
+
+class WatchListInput(BaseModel):
+    """Input schema for listing a tenant/profile's change-watches."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: str
+
+
+class WatchGetBatchInput(BaseModel):
+    """Input schema for bounded pull-batch change-event retrieval."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: str
+    watch_id: str
+    since_cursor: str | None = None
+    max_batch: int | None = None
+
+
+class WatchAckInput(BaseModel):
+    """Input schema for acknowledging change-watch progress to a cursor."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: str
+    watch_id: str
+    ack_cursor: str
+
+
+class WatchRecoverInput(BaseModel):
+    """Input schema for re-enquiring a safe resume cursor without a replay storm."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: str
+    watch_id: str
+    since_cursor: str | None = None
+
+
+class WatchTestEventInput(BaseModel):
+    """Input schema for injecting a deterministic synthetic change event (test-mode)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    profile_id: str
+    watch_id: str
+    action: str = "created"
+    object_ref: str = "test"

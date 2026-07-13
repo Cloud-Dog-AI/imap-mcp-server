@@ -101,12 +101,12 @@ echo "=========================================="
 #   public boundary (GitHub/GHCR): pypi.org/simple — platform packages
 #       resolve from the public Cloud-Dog-External namespace or from
 #       GitHub-mirrored source. (default for --variant public)
-#   public-git staging boundary:        set PIP_INDEX_URL to the public PyPI
+#   gitea staging boundary:        set PIP_INDEX_URL to the Gitea public PyPI
 #       index via the caller's environment (PIP_INDEX_URL=...).
 # Never hardcode an internal host here and never use a second index
 # (a fallback index is forbidden by PS-97 §3.3 + §4 — single index-url only).
 if [[ -n "${PIP_INDEX_URL:-}" ]]; then
-  : # honour caller override (e.g. public Git staging boundary)
+  : # honour caller override (e.g. Gitea staging boundary)
 else
   PIP_INDEX_URL="https://pypi.org/simple"
 fi
@@ -144,7 +144,18 @@ done
 chmod 600 "${CA_BUNDLE_FILE}"
 
 # ── Build ────────────────────────────────────────────────────────
+# ── W28C-1719 publish-before-pin guard + build-provenance revision label (fail-closed) ──
+_PBP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+"${_PBP_DIR}/scripts/publish-before-pin-guard.sh" "${_PBP_DIR}" || exit $?
+_PBP_REV="$(git -C "${_PBP_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
+# W28E-1863 fix-wave-d (WSC-014): propagate build identity to the image so the
+# Dockerfile can stamp OCI labels + runtime ENV for build_identity() / /version.
+SOURCE_COMMIT="${_PBP_REV}"
+SOURCE_BRANCH="$(git -C "${_PBP_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 DOCKER_BUILDKIT=1 docker buildx build \
+  --label "org.opencontainers.image.revision=${_PBP_REV}" \
   --progress=plain \
   --network=host \
   --load \
@@ -157,6 +168,9 @@ DOCKER_BUILDKIT=1 docker buildx build \
   --build-arg http_proxy="${http_proxy:-}" \
   --build-arg https_proxy="${https_proxy:-}" \
   --build-arg no_proxy="${no_proxy:-}" \
+  --build-arg SOURCE_COMMIT="${SOURCE_COMMIT}" \
+  --build-arg SOURCE_BRANCH="${SOURCE_BRANCH}" \
+  --build-arg BUILD_DATE="${BUILD_DATE}" \
   -t "${FOLDER}/${CONTAINER}:${EFFECTIVE_TAG}" \
   . 2>&1 | tee docker-build.log
 

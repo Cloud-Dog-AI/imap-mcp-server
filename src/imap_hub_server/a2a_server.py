@@ -29,6 +29,7 @@ from cloud_dog_api_kit.a2a.events import create_a2a_events_router
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
+from imap_hub_server import __version__
 from imap_hub_core.audit.context import (
     reset_audit_request_context,
     set_audit_request_context,
@@ -129,7 +130,7 @@ def create_a2a_app(env_files: list[str] | None = None) -> FastAPI:
         FastAPI,
         platform_create_app(
             title="imap-mcp-server-a2a",
-            version="0.1.0",
+            version=__version__,
             description="A2A transport for IMAP tools.",
             api_prefix=a2a_base_path,
             timeout_seconds=_TOOL_REQUEST_TIMEOUT_SECONDS,
@@ -143,8 +144,10 @@ def create_a2a_app(env_files: list[str] | None = None) -> FastAPI:
         public_paths={
             join_base_path(a2a_base_path, "/"),
             "/.well-known/agent.json",
-            "/tasks",
-            join_base_path(a2a_base_path, "/tasks"),
+            # W28E-1870-D: A2A task submission (/tasks) executes skills — including the
+            # imap_watch_* change-watch mutations — so it MUST enforce auth (PS-102
+            # CSTREAM-009 RBAC), matching the sibling services (git-mcp/index-retriever
+            # 401 anonymous A2A). Only the card/descriptor/health stay public.
             join_base_path(a2a_base_path, "/health"),
         },
         # Let tool endpoints handle their own auth after syncing the
@@ -157,6 +160,57 @@ def create_a2a_app(env_files: list[str] | None = None) -> FastAPI:
     )
     _install_browser_cors(app, web_port=config.web_server.port)
     install_service_context_middleware(app, log_paths=log_paths)
+
+    _tasks_paths = {
+        join_base_path(a2a_base_path, "/tasks"),
+        join_base_path(a2a_base_path, "/a2a/tasks"),
+    }
+
+    @app.middleware("http")
+    async def _bind_a2a_actor_context(request: Request, call_next):
+        """Bind the caller's actor + roles into the audit request context for
+        A2A task submissions.
+
+        W28E-1882: the platform ``/a2a/tasks`` card router dispatches to skill
+        handlers WITHOUT establishing an actor-scoped audit context, so a skill
+        that calls ``tool_registry.call`` reached ``_check_profile_access`` with
+        no ``actor_id`` — the profile ``allowed_groups`` gate (which needs the
+        actor's group memberships) was skipped and a group-authorised caller was
+        wrongly denied ("Access denied to profile ..."). The ``/tools`` endpoint
+        already sets this context inline; this middleware does the same for the
+        task-submission path so group-derived profile access is honoured there
+        too. Non-task paths are passed through untouched.
+        """
+        if request.url.path not in _tasks_paths:
+            return await call_next(request)
+        token = None
+        try:
+            admin_state.sync_api_key_manager(auth_runtime.api_key_manager)
+            api_record = request_api_key_record(request, auth_runtime.api_key_manager)
+            if api_record is not None:
+                user = admin_state.get_user(api_record.owner_user_id)
+                actor_id = str(api_record.owner_user_id or api_record.api_key_id).strip() or "a2a-client"
+                roles: set[str] = set()
+                if user is not None:
+                    role = str(getattr(user, "role", "")).strip().lower()
+                    if role:
+                        roles.add(role)
+                    for group in admin_state.groups_for_user(user.user_id):
+                        roles.update(
+                            str(item).strip().lower() for item in group.roles if str(item).strip()
+                        )
+                token = set_audit_request_context(
+                    _audit_context(
+                        request,
+                        actor_id=actor_id,
+                        roles=roles,
+                        source_identifier=f"api_key:{api_record.api_key_id}",
+                    )
+                )
+            return await call_next(request)
+        finally:
+            if token is not None:
+                reset_audit_request_context(token)
 
     @app.get(join_base_path(a2a_base_path, "/"), include_in_schema=False)
     async def a2a_descriptor() -> dict[str, Any]:
@@ -181,7 +235,7 @@ def create_a2a_app(env_files: list[str] | None = None) -> FastAPI:
     ]
     app.include_router(create_health_router(
         application_name="imap-mcp-server",
-        version="0.1.0",
+        version=__version__,
     ))
 
     @app.get(join_base_path(a2a_base_path, "/health"), include_in_schema=False)
@@ -203,7 +257,7 @@ def create_a2a_app(env_files: list[str] | None = None) -> FastAPI:
                 "interface": "a2a",
                 "status": "ok",
                 "application": "imap-mcp-server",
-                "version": "0.1.0",
+                "version": __version__,
                 "env_file": None,
             },
             "warnings": [],
@@ -358,15 +412,42 @@ def create_a2a_app(env_files: list[str] | None = None) -> FastAPI:
         payload.setdefault("profile_id", "default")
         return tool_registry.call("mail_probe", payload)
 
+    def _watch_skill(tool_name: str):
+        """Build an A2A skill handler that dispatches a change-watch tool.
+
+        One skill per MCP verb (PS-102 §5.4) so a listening agent can create a
+        mail-profile change-watch and consume agent-consumable batches as A2A
+        tasks/messages. Tenant scope defaults to the ``default`` profile.
+        """
+
+        def _handler(text: str) -> Any:
+            payload = _parse_a2a_input(text)
+            payload.setdefault("profile_id", "default")
+            return tool_registry.call(tool_name, payload)
+
+        return _handler
+
     # A2A agent card and task submission router
     _a2a_skills = [
         A2ASkill(id="mail_search", name="Mail Search", description="Search emails across configured mailboxes", handler=_handle_mail_search),
         A2ASkill(id="mail_get_message", name="Mail Get Message", description="Retrieve a specific email message by ID", handler=_handle_mail_get_message),
         A2ASkill(id="mail_probe", name="Mail Probe", description="Probe mailbox connectivity and status", handler=_handle_mail_probe),
+        # W28E-1870-D mail-profile change-watch skills (PS-102 §5.4 / CSTREAM-IMAP).
+        A2ASkill(id="imap_watch_create", name="Create Mail Change-Watch", description="Create a mail-profile change-watch with criteria (folder, sender, recipient, subject, header/body, attachment, flags, glob/regex) — PS-102 CSTREAM-IMAP-001/002", handler=_watch_skill("imap_watch_create")),
+        A2ASkill(id="imap_watch_list", name="List Change-Watches", description="List the caller's mail change-watches for the current profile", handler=_watch_skill("imap_watch_list")),
+        A2ASkill(id="imap_watch_status", name="Change-Watch Status", description="Return a change-watch status (state, journal depth, cursors, in-flight, throttle)", handler=_watch_skill("imap_watch_status")),
+        A2ASkill(id="imap_watch_get_batch", name="Get Change Batch", description="Retrieve a bounded batch of mail change events since a cursor with the next cursor (backpressure-aware)", handler=_watch_skill("imap_watch_get_batch")),
+        A2ASkill(id="imap_watch_ack", name="Ack Change Batch", description="Acknowledge change-watch progress up to a cursor, releasing an in-flight batch slot", handler=_watch_skill("imap_watch_ack")),
+        A2ASkill(id="imap_watch_recover", name="Recover Change-Watch", description="Re-enquire a safe resume cursor for a change-watch without a replay storm", handler=_watch_skill("imap_watch_recover")),
+        A2ASkill(id="imap_watch_pause", name="Pause Change-Watch", description="Pause a change-watch (retains cursor + journal within retention)", handler=_watch_skill("imap_watch_pause")),
+        A2ASkill(id="imap_watch_resume", name="Resume Change-Watch", description="Resume a paused change-watch", handler=_watch_skill("imap_watch_resume")),
+        A2ASkill(id="imap_watch_delete", name="Delete Change-Watch", description="Delete a change-watch and its journal", handler=_watch_skill("imap_watch_delete")),
+        A2ASkill(id="imap_watch_test_event", name="Inject Test Change Event", description="Inject a deterministic synthetic mail change event into a watch's journal (test-mode, no external mutation)", handler=_watch_skill("imap_watch_test_event")),
     ]
     _a2a_card_router = create_a2a_card_router(
         name="imap-mcp",
         description="IMAP MCP A2A server for email operations and tool execution",
+        version=__version__,
         skills=_a2a_skills,
     )
     app.include_router(_a2a_card_router)

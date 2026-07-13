@@ -6,7 +6,7 @@ registry: service
 required: must-have
 when-applicable: ""
 template-last-updated: 2026-06-12
-template-owner: public-standards
+template-owner: platform-standards
 
 project: imap-mcp-server
 doc-last-updated: 2026-06-18
@@ -26,7 +26,8 @@ doc-conformance-stamp: 2026-06-18T00:00:00Z
 Prerequisites:
 
 - Docker 24 or newer with BuildKit enabled
-- Python 3.12 if you run the package locally
+- Python 3.13 or newer if you run the package locally (project-local runtime contract
+  NF-005; the package fails fast at import under Python < 3.13)
 - Public package index: `https://pypi.org/simple`
 
 Build the public image:

@@ -6,7 +6,7 @@ registry: service
 required: must-have
 when-applicable: ""
 template-last-updated: 2026-06-12
-template-owner: public-standards
+template-owner: platform-standards
 
 project: imap-mcp-server
 doc-last-updated: 2026-06-18
@@ -23,13 +23,15 @@ doc-conformance-stamp: 2026-06-18T00:00:00Z
 `imap-mcp-server` - IMAP mailbox access service with API, Web, MCP, and A2A servers.
 
 ## Prerequisites
-- Python 3.11+
+- Python 3.13+ (project-local runtime contract — NF-005; the W28R-3015 supply-chain
+  remediation runs on CPython 3.13.14 / `python:3.13-slim`, and the package fails fast
+  at import under Python < 3.13)
 - Docker with BuildKit support
 - pip
 
 ## Development Setup
 ```bash
-python3 -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -e ".[dev]"
@@ -89,7 +91,7 @@ PYPI_URL=https://pypi.org/simple \
 PYPI_USERNAME=build-user \
 PYPI_PASSWORD=build-password \
 CUSTOM_CA_CERT=./certs/ca.pem \
-PUBLICATION_TAG_SUFFIX=public-test ./docker-build.sh latest --variant public
+PUBLICATION_TAG_SUFFIX=gitea-test ./docker-build.sh latest --variant public
 ```
 
 ## Docker Push

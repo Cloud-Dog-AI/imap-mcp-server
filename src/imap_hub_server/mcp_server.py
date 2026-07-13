@@ -33,6 +33,7 @@ from cloud_dog_api_kit import create_app as platform_create_app
 from cloud_dog_logging.correlation import get_correlation_id
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 
+from imap_hub_server import __version__
 from imap_hub_core.audit.context import (
     AuditRequestContext,
     reset_audit_request_context,
@@ -63,6 +64,38 @@ MCP_TOOLS_ALIAS_PATH = "/tools"
 _ADMIN_TOOL_PREFIXES = ("user_", "group_", "api_key_")
 _TOOL_REQUEST_TIMEOUT_SECONDS = 120.0
 _ASYNC_SEARCH_FLAGS = ("run_async", "async")
+
+
+def _build_mcp_watch_service(config: Any, audit_writer: Any) -> Any:
+    """Build the durable mail-profile change-watch adapter for the MCP surface.
+
+    W28E-1870-D / PS-102 §4.2: consumes the common ``cloud_dog_api_kit.change_stream``
+    foundation (WatchCoordinator + durable SqlJournal over the service
+    ``cloud_dog_db`` engine + a2a.events broadcaster + audit). Any failure resolving
+    the DB engine / broadcaster degrades to a bounded in-memory journal so the MCP
+    app never blocks startup on a database (CSTREAM-002 nonblocking).
+    """
+    from imap_hub_core.change_stream import WatchService, make_audit_sink
+
+    engine = None
+    try:
+        from imap_hub_core.db import initialise_database
+
+        engine = initialise_database(config=config).engine
+    except Exception:  # pragma: no cover - no DB runtime in this tier
+        engine = None
+    broadcaster = None
+    try:
+        from cloud_dog_api_kit.a2a.events import InMemoryEventBroadcaster
+
+        broadcaster = InMemoryEventBroadcaster()
+    except Exception:  # pragma: no cover - broadcaster surface unavailable
+        broadcaster = None
+    return WatchService(
+        engine=engine,
+        broadcaster=broadcaster,
+        audit_sink=make_audit_sink(audit_writer) if audit_writer is not None else None,
+    )
 
 
 def _truthy(value: Any) -> bool:
@@ -126,9 +159,23 @@ def _effective_roles(request: Request, admin_state: FileBackedAdminState, auth_r
         user = admin_state.get_user(api_record.owner_user_id)
         if user is not None and str(getattr(user, "status", "")).strip().lower() == "disabled":
             raise HTTPException(status_code=403, detail="User account is disabled")
-        role = str(getattr(user, "role", "")).strip().lower()
-        if role:
-            return {role}
+        # W28E-1882: resolve the actor's DIRECT role AND their group-derived
+        # roles, so a group role grant (e.g. a "reader" group) actually enables
+        # the tools that role permits. Mirrors api_server/a2a_server role
+        # resolution (previously the MCP transport used the direct role only,
+        # which silently ignored group roles at the tool-permission gate while
+        # profile-access already honoured them).
+        resolved: set[str] = set()
+        if user is not None:
+            role = str(getattr(user, "role", "")).strip().lower()
+            if role:
+                resolved.add(role)
+            for group in admin_state.groups_for_user(user.user_id):
+                resolved.update(
+                    str(item).strip().lower() for item in group.roles if str(item).strip()
+                )
+        if resolved:
+            return resolved
     # Default-DENY: an unauthenticated caller (no roles, no valid API key) gets an
     # EMPTY role set — never admin. (D-IMAP-IDENTITY-COLLAPSE-1)
     return set()
@@ -291,7 +338,7 @@ def _register_tool_router_compat(
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "imap-mcp-server", "version": "0.1.0"},
+                    "serverInfo": {"name": "imap-mcp-server", "version": __version__},
                 },
             }
         if method == "tools/call":
@@ -478,6 +525,13 @@ def create_mcp_app(env_files: list[str] | None = None) -> FastAPI:
     else:
         seed_api_key, _ = auth_runtime.api_key_manager.generate("integration-user")
     admin_state.sync_api_key_manager(auth_runtime.api_key_manager)
+    # W28E-1870-D: durable mail-profile change-watch adapter (PS-102 §4.2). Shares
+    # the same foundation (WatchCoordinator + SqlJournal + broadcaster + audit) as
+    # the API surface so the MCP ``imap_watch_*`` tools are backed by a durable
+    # journal. Best-effort DB engine resolve — falls back to a bounded in-memory
+    # journal when no DB runtime is available (unit/embedded tier) so the MCP app
+    # never blocks startup on a database (CSTREAM-002).
+    watch_service = _build_mcp_watch_service(config, audit_writer)
     registry = build_default_tool_registry(
         profiles=profile_store,
         downloads_dir=config.server.storage.downloads_dir,
@@ -491,13 +545,14 @@ def create_mcp_app(env_files: list[str] | None = None) -> FastAPI:
         profile_provider=lambda: admin_state.export_profiles(profile_store),
         runtime_fallback_profile=profile_store.get("operations_cloud_dog")
         or profile_store.get("operations"),
+        watch_service=watch_service,
     )
 
     app = cast(
         FastAPI,
         platform_create_app(
             title="imap-mcp-server-mcp",
-            version="0.1.0",
+            version=__version__,
             description="MCP transport for IMAP tools.",
             api_prefix=mcp_base_path,
             timeout_seconds=_TOOL_REQUEST_TIMEOUT_SECONDS,
@@ -555,6 +610,7 @@ def create_mcp_app(env_files: list[str] | None = None) -> FastAPI:
 
     app.state.config = config
     app.state.tool_registry = registry
+    app.state.watch_service = watch_service
     app.state.audit_writer = audit_writer
     app.state.auth_runtime = auth_runtime
     app.state.admin_state = admin_state

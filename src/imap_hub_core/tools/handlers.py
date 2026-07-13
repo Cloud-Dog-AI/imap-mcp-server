@@ -59,9 +59,17 @@ from imap_hub_core.tools.definitions import (
     UserDeleteInput,
     UserGetInput,
     UserUpdateInput,
+    WatchAckInput,
+    WatchCreateInput,
+    WatchGetBatchInput,
+    WatchIdInput,
+    WatchListInput,
+    WatchRecoverInput,
+    WatchTestEventInput,
 )
 from imap_hub_core.tools.read_handler import ReadToolHandlers
 from imap_hub_core.tools.search_handler import SearchToolHandlers
+from imap_hub_core.tools.watch_handler import WatchToolHandlers
 from imap_hub_core.tools.write_handler import WriteToolHandlers
 from imap_hub_server.admin.state import FileBackedAdminState
 
@@ -82,6 +90,7 @@ def build_default_tool_registry(
     profile_provider: Callable[[], dict[str, dict[str, Any]]] | None = None,
     runtime_fallback_profile: dict[str, Any] | None = None,
     resource_guard: Any | None = None,
+    watch_service: Any | None = None,
 ) -> ToolRegistry:
     """Build the default tool registry with IMAP handlers.
 
@@ -89,6 +98,13 @@ def build_default_tool_registry(
     the imap_hub_server layer so the registry can additively authorise
     resource-bearing tools via the RBACBinding cascade. Optional: when ``None`` the
     registry behaves exactly as before (role-pattern gate only).
+
+    ``watch_service`` (W28E-1870-D, duck-typed ``WatchService``) is supplied by the
+    imap_hub_server layer so the registry can expose the mail-profile change-watch
+    tool family (PS-102 §5.3 / CSTREAM-IMAP-001/002). When ``None`` an isolated
+    in-memory ``WatchService`` is built so the tools register and work in the unit
+    tier without a live DB — the durable journal only activates when a real
+    ``cloud_dog_db`` engine is wired in by the server surface.
     """
     handlers = ImapToolHandlers(
         profiles=profiles,
@@ -348,6 +364,99 @@ def build_default_tool_registry(
             description="Delete messages from a folder.",
             input_model=MailDeleteMessagesInput,
             handler=handlers.mail_delete_messages,
+        )
+    )
+    # -- W28E-1870-D mail-profile change-watch tools (PS-102 §5.3 / CSTREAM-IMAP) --
+    # A thin adapter over the common ``cloud_dog_api_kit.change_stream`` foundation.
+    # When no durable ``watch_service`` is supplied by the server surface, build an
+    # isolated in-memory one so the tools register and function in the unit tier.
+    if watch_service is None:
+        from imap_hub_core.change_stream import WatchService as _WatchService
+
+        watch_service = _WatchService()
+    watch_handlers = WatchToolHandlers(watch_service)
+    registry.register(
+        ToolContract(
+            name="imap_watch_create",
+            description="Create a mail-profile change-watch with criteria (folder, sender, "
+            "recipient, subject, header/body, attachment, flags, glob/regex). Returns the "
+            "watch id and status.",
+            input_model=WatchCreateInput,
+            handler=watch_handlers.watch_create,
+        )
+    )
+    registry.register(
+        ToolContract(
+            name="imap_watch_list",
+            description="List the caller's mail-profile change-watches for the current profile.",
+            input_model=WatchListInput,
+            handler=watch_handlers.watch_list,
+        )
+    )
+    registry.register(
+        ToolContract(
+            name="imap_watch_status",
+            description="Return a change-watch status (state, journal depth, cursors, in-flight, throttle).",
+            input_model=WatchIdInput,
+            handler=watch_handlers.watch_status,
+        )
+    )
+    registry.register(
+        ToolContract(
+            name="imap_watch_get_batch",
+            description="Retrieve a bounded batch of mail change events for a watch since a "
+            "cursor, with the next cursor. Respects max_batch and backpressure.",
+            input_model=WatchGetBatchInput,
+            handler=watch_handlers.watch_get_batch,
+        )
+    )
+    registry.register(
+        ToolContract(
+            name="imap_watch_ack",
+            description="Acknowledge progress on a change-watch up to a cursor, releasing an in-flight batch slot.",
+            input_model=WatchAckInput,
+            handler=watch_handlers.watch_ack,
+        )
+    )
+    registry.register(
+        ToolContract(
+            name="imap_watch_recover",
+            description="Re-enquire a safe resume cursor for a change-watch without a replay storm.",
+            input_model=WatchRecoverInput,
+            handler=watch_handlers.watch_recover,
+        )
+    )
+    registry.register(
+        ToolContract(
+            name="imap_watch_pause",
+            description="Pause a change-watch; it retains its cursor and journal within retention.",
+            input_model=WatchIdInput,
+            handler=watch_handlers.watch_pause,
+        )
+    )
+    registry.register(
+        ToolContract(
+            name="imap_watch_resume",
+            description="Resume a paused change-watch.",
+            input_model=WatchIdInput,
+            handler=watch_handlers.watch_resume,
+        )
+    )
+    registry.register(
+        ToolContract(
+            name="imap_watch_delete",
+            description="Delete a change-watch and its journal.",
+            input_model=WatchIdInput,
+            handler=watch_handlers.watch_delete,
+        )
+    )
+    registry.register(
+        ToolContract(
+            name="imap_watch_test_event",
+            description="Inject a deterministic synthetic mail change event into a watch's "
+            "journal (test-mode, no external IMAP mutation).",
+            input_model=WatchTestEventInput,
+            handler=watch_handlers.watch_test_event,
         )
     )
     return registry
