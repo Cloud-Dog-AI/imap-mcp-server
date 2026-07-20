@@ -211,18 +211,22 @@ def create_web_app(env_files: list[str] | None = None) -> FastAPI:
     # Simple token-based session store for WebUI cookie login.
     _sessions: dict[str, dict] = {}
     # Thread-a (W28A-735-R5) flat login: seed THREE demoable accounts — the flat
-    # roles admin / read-write / read-only. Usernames + passwords are overridable
-    # via config/env; the defaults match the rest of the estate (file-mcp /
-    # git-mcp) so all three roles are demoable out of the box. Roles themselves
-    # come from the ONE shared guard (cloud_dog_idam via web_flat_roles.py — no
-    # per-service RBAC fork).
+    # roles admin / read-write / read-only. Usernames are overridable via
+    # config/env with non-secret role-name defaults. The admin PASSWORD comes
+    # ONLY from config/env (`web_server.password` / CLOUD_DOG_WEB_LOGIN_PASSWORD,
+    # injected on the deployed container) with no hardcoded fallback
+    # (W28A-SEC-R17: removed the public demo-credential literal). read-write and
+    # read-only passwords fall back to the RESOLVED admin password when their own
+    # config key is unset, so all three roles remain demoable without shipping a
+    # public credential literal and rw/ro never rely on a published value. Roles
+    # themselves come from the ONE shared guard (cloud_dog_idam via
+    # web_flat_roles.py — no per-service RBAC fork).
     _admin_username = (
         runtime_config_value(config, "web_server.username", "CLOUD_DOG_WEB_LOGIN_USERNAME")
         or "admin"
     )
-    _admin_password = (
-        runtime_config_value(config, "web_server.password", "CLOUD_DOG_WEB_LOGIN_PASSWORD")
-        or "OrangeRiverTable"
+    _admin_password = runtime_config_value(
+        config, "web_server.password", "CLOUD_DOG_WEB_LOGIN_PASSWORD"
     )
     _rw_username = (
         runtime_config_value(
@@ -234,7 +238,7 @@ def create_web_app(env_files: list[str] | None = None) -> FastAPI:
         runtime_config_value(
             config, "web_server.read_write_password", "CLOUD_DOG_WEB_LOGIN_READ_WRITE_PASSWORD"
         )
-        or "BlueRiverChair"
+        or _admin_password
     )
     _ro_username = (
         runtime_config_value(
@@ -246,7 +250,7 @@ def create_web_app(env_files: list[str] | None = None) -> FastAPI:
         runtime_config_value(
             config, "web_server.read_only_password", "CLOUD_DOG_WEB_LOGIN_READ_ONLY_PASSWORD"
         )
-        or "GreenRiverDesk"
+        or _admin_password
     )
     # username -> (password, flat-role, user_id). Built once; the comparison in
     # auth_login is constant-time per candidate (secrets.compare_digest) so a
