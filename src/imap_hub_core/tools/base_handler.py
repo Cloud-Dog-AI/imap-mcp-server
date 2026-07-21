@@ -53,7 +53,14 @@ from imap_hub_core.audit.logger import AuditWriter
 from imap_hub_core.duplicate.detector import DuplicateCandidate, group_duplicates
 from imap_hub_core.duplicate.policy import choose_keeper
 from imap_hub_core.extract.extractors import extract_message_text
-from imap_hub_core.imap.connection import IMAPConnectionConfig, probe_imap_connectivity
+from imap_hub_core.imap.connection import (
+    DEFAULT_OAUTH_TOKEN_URI,
+    IMAPConnectionConfig,
+    build_xoauth2_auth_bytes,
+    load_oauth_state_sidecar,
+    probe_imap_connectivity,
+    refresh_oauth_access_token,
+)
 from imap_hub_core.ledger.similarity import build_similarity_key
 from imap_hub_core.ledger.store import LedgerEntry, SearchLedgerStore
 from imap_hub_core.storage_paths import (
@@ -140,6 +147,11 @@ class ResolvedConnection:
     timeout_seconds: int
     ca_bundle_path: str | None
     allow_self_signed: bool
+    auth_mode: str = "app_password"
+    oauth_client_id: str = ""
+    oauth_client_secret: str = ""
+    oauth_refresh_token: str = ""
+    oauth_token_uri: str = ""
 
 
 @dataclass(slots=True)
@@ -782,7 +794,7 @@ class ImapToolHandlersBase:
     def _profile_has_live_imap(self, profile_id: str) -> bool:
         """Return whether a profile resolves to a usable live IMAP connection."""
         try:
-            self._resolve_connection(self._profile(profile_id))
+            self._resolve_connection(self._profile(profile_id), profile_id=profile_id)
         except Exception:
             return False
         return True
@@ -942,7 +954,12 @@ class ImapToolHandlersBase:
 
         return message.as_bytes(policy=policy.default)
 
-    def _resolve_connection(self, profile: dict[str, Any]) -> ResolvedConnection:
+    def _resolve_connection(
+        self,
+        profile: dict[str, Any],
+        *,
+        profile_id: str = "",
+    ) -> ResolvedConnection:
         """
         Purpose: Implement `_resolve_connection` behaviour for this module.
         Inputs: Parameters are defined by the function/class signature.
@@ -959,6 +976,9 @@ class ImapToolHandlersBase:
         auth_cfg = profile.get("auth")
         if not isinstance(auth_cfg, dict):
             auth_cfg = {}
+        oauth_cfg = auth_cfg.get("oauth")
+        if not isinstance(oauth_cfg, dict):
+            oauth_cfg = {}
         cred_cfg = profile.get("credentials")
         if not isinstance(cred_cfg, dict):
             cred_cfg = {}
@@ -978,12 +998,88 @@ class ImapToolHandlersBase:
         allow_self_signed = bool(tls_cfg.get("allow_self_signed", False))
 
         auth_mode = self._clean_str(auth_cfg.get("mode", "")).lower()
-        username = self._clean_str(cred_cfg.get("username", ""))
+        oauth_state = (
+            load_oauth_state_sidecar(
+                profile_id,
+                state_dir=_resolved_state_dir
+                if (_resolved_state_dir := self._clean_str(oauth_cfg.get("state_dir", "")))
+                and not _resolved_state_dir.startswith("$")
+                else None,
+            )
+            if auth_mode == "oauth2" and profile_id
+            else {}
+        )
+
+        def _resolved(*values: object) -> str:
+            for value in values:
+                candidate = self._clean_str(value)
+                if candidate and not candidate.startswith("$"):
+                    return candidate
+            return ""
+
+        username = (
+            _resolved(
+                oauth_state.get("account_email", ""),
+                oauth_cfg.get("account_email", ""),
+                cred_cfg.get("username", ""),
+            )
+            if auth_mode == "oauth2"
+            else _resolved(
+                cred_cfg.get("username", ""),
+                oauth_cfg.get("account_email", ""),
+            )
+        )
         password = self._clean_str(cred_cfg.get("password", "")) or self._clean_str(
             cred_cfg.get("app_password", "")
         )
 
-        use_runtime_fallback = not host or not username or not password or auth_mode == "oauth2"
+        if auth_mode == "oauth2":
+            oauth_client_id = _resolved(
+                oauth_state.get("client_id", ""),
+                oauth_cfg.get("client_id", ""),
+            )
+            oauth_client_secret = _resolved(oauth_cfg.get("client_secret", ""))
+            oauth_refresh_token = _resolved(
+                oauth_state.get("refresh_token", ""),
+                oauth_cfg.get("refresh_token", ""),
+            )
+            oauth_token_uri = _resolved(
+                oauth_state.get("token_uri", ""),
+                oauth_cfg.get("token_uri", ""),
+            ) or DEFAULT_OAUTH_TOKEN_URI
+            required = {
+                "host": host,
+                "username/account_email": username,
+                "client_id": oauth_client_id,
+                "client_secret": oauth_client_secret,
+                "refresh_token": oauth_refresh_token,
+            }
+            missing = [
+                name for name, value in required.items()
+                if not value or value.startswith("$")
+            ]
+            if missing:
+                raise ValueError(
+                    "OAuth profile is not connected; missing resolved fields: "
+                    + ", ".join(missing)
+                )
+            return ResolvedConnection(
+                host=host,
+                port=port,
+                security=security,
+                username=username,
+                password="",
+                timeout_seconds=timeout_seconds,
+                ca_bundle_path=ca_bundle_path,
+                allow_self_signed=allow_self_signed,
+                auth_mode="oauth2",
+                oauth_client_id=oauth_client_id,
+                oauth_client_secret=oauth_client_secret,
+                oauth_refresh_token=oauth_refresh_token,
+                oauth_token_uri=oauth_token_uri,
+            )
+
+        use_runtime_fallback = not host or not username or not password
         if use_runtime_fallback:
             fallback = self._runtime_fallback_profile
             fallback_imap = fallback.get("imap") if isinstance(fallback, dict) else {}
@@ -1029,6 +1125,7 @@ class ImapToolHandlersBase:
             timeout_seconds=timeout_seconds,
             ca_bundle_path=ca_bundle_path,
             allow_self_signed=allow_self_signed,
+            auth_mode=auth_mode or "app_password",
         )
 
     def _build_ssl_context(self, settings: ResolvedConnection) -> ssl.SSLContext:
@@ -1053,7 +1150,7 @@ class ImapToolHandlersBase:
     ) -> tuple[imaplib.IMAP4 | imaplib.IMAP4_SSL, ResolvedConnection]:
         """Open and authenticate an IMAP client without selecting a mailbox."""
         profile = self._profile(profile_id)
-        settings = self._resolve_connection(profile)
+        settings = self._resolve_connection(profile, profile_id=profile_id)
         context = self._build_ssl_context(settings)
 
         client: imaplib.IMAP4 | imaplib.IMAP4_SSL
@@ -1073,7 +1170,20 @@ class ImapToolHandlersBase:
             if settings.security in {"starttls", "tls"}:
                 client.starttls(ssl_context=context)
 
-        login_status, _ = client.login(settings.username, settings.password)
+        if settings.auth_mode == "oauth2":
+            access_token = refresh_oauth_access_token(
+                client_id=settings.oauth_client_id,
+                client_secret=settings.oauth_client_secret,
+                refresh_token=settings.oauth_refresh_token,
+                token_uri=settings.oauth_token_uri,
+                timeout=float(settings.timeout_seconds),
+            )
+            login_status, _ = client.authenticate(
+                "XOAUTH2",
+                lambda _: build_xoauth2_auth_bytes(settings.username, access_token),
+            )
+        else:
+            login_status, _ = client.login(settings.username, settings.password)
         if login_status != "OK":
             raise RuntimeError(f"IMAP login failed: {login_status}")
         return client, settings

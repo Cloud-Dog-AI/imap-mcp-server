@@ -40,8 +40,15 @@ class OAuthConfig(BaseModel):
     client_id: str | None = None
     client_secret: str | None = None
     redirect_url: str | None = None
+    redirect_uri: str | None = None
     scopes: list[str] = Field(default_factory=list)
+    oauth_scope: str | None = None
+    token_uri: str | None = None
     token_store_key: str | None = None
+    refresh_token: str | None = None
+    access_token: str | None = None
+    account_email: str | None = None
+    state_dir: str | None = None
 
 
 class AuthProfileConfig(BaseModel):

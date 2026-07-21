@@ -35,13 +35,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Public build — no private CA overlay. System ca-certificates trust store is
 # sufficient for public or boundary-provided package indexes.
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md requirements.lock ./
 COPY src/ ./src/
 RUN --mount=type=secret,id=pip_conf,target=/etc/pip.conf \
-    pip install --no-cache-dir \
-      "cloud-dog-config==0.3.4" "cloud-dog-logging>=0.4.1" "cloud-dog-api-kit[change-stream-db]>=0.14.0" "cloud-dog-idam==0.5.3" "cloud-dog-llm==0.4.0" "cloud-dog-db>=0.3.2" "cloud-dog-jobs>=0.4.2" "cloud-dog-storage==0.1.8" && \
-    pip install --no-cache-dir \
-      .
+    pip install --quiet --no-cache-dir -r requirements.lock && \
+    pip install --quiet --no-cache-dir --no-deps .
 
 # ── Final ────────────────────────────────────────────────────────
 # W28R-3015: Python 3.13 runtime (see builder stage note).
@@ -66,8 +64,16 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 COPY src/ ./src/
 COPY database/ ./database/
-COPY ui/dist/ ./ui/dist/
-COPY pyproject.toml ./
+# W28A-SEC-R18: the compiled web-console bundle (ui/dist) is a build artefact
+# produced from the Cloud-Dog UI monorepo and is intentionally NOT vendored into
+# the public source mirror (see ui/README.md). Ship the README and create a
+# minimal placeholder index so the web listener serves a valid page; an external
+# builder may overlay a real ui/dist to enable the full console. The API, MCP and
+# A2A surfaces are fully functional without the vendored bundle.
+COPY ui/README.md ./ui/README.md
+RUN mkdir -p /app/ui/dist/assets && \
+    printf '%s' '<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>cloud-dog — IMAP MCP</title></head><body><div id="root"><h1>imap-mcp-server</h1><p>Web console bundle is not included in the public source mirror. Build it from the Cloud-Dog UI monorepo and overlay <code>ui/dist</code> to enable the full console. The API, MCP and A2A surfaces are fully available.</p></div></body></html>' > /app/ui/dist/index.html
+COPY pyproject.toml requirements.lock ./
 COPY defaults.yaml config.yaml server_control.sh docker-entrypoint.sh healthcheck.sh ./
 
 RUN mkdir -p /app/logs /app/data/audit /app/data/downloads /app/data/archive /app/.pids /app/certs && \

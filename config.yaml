@@ -12,8 +12,15 @@ profiles:
       mode: oauth2
       oauth:
         client_id: "${GOOGLE_CLIENT_ID}"
-        client_secret: ""
+        client_secret: "${GOOGLE_CLIENT_SECRET}"
         redirect_url: "${GOOGLE_REDIRECT_URL}"
+        redirect_uri: "${GOOGLE_REDIRECT_URL}"
+        token_uri: "${IMAP_MCP_GMAIL_TOKEN_URI}"
+        oauth_scope: "${IMAP_MCP_GMAIL_OAUTH_SCOPE}"
+        refresh_token: "${IMAP_MCP_GMAIL_REFRESH_TOKEN}"
+        account_email: "${IMAP_MCP_GMAIL_USER_EMAIL}"
+    credentials:
+      username: "${IMAP_MCP_GMAIL_USER_EMAIL}"
     sync:
       retention:
         max_age_days: 30
@@ -42,8 +49,8 @@ profiles:
   operations:
     provider: imap_generic
     imap:
-      host: ""
-      port: 993
+      host: "${IMAP_OPERATIONS_HOST}"
+      port: "${IMAP_OPERATIONS_PORT}"
       security: starttls
       tls:
         ca_bundle_path: "${CA_BUNDLE_PATH}"
@@ -52,8 +59,8 @@ profiles:
     auth:
       mode: app_password
     credentials:
-      username: ""
-      password: ""
+      username: "${IMAP_OPERATIONS_USERNAME}"
+      password: "${IMAP_OPERATIONS_PASSWORD}"
     sync:
       retention:
         max_age_days: 30
@@ -83,8 +90,8 @@ profiles:
   operations_cloud_dog:
     provider: imap_generic
     imap:
-      host: ""
-      port: 993
+      host: "${IMAP_OPERATIONS_HOST}"
+      port: "${IMAP_OPERATIONS_PORT}"
       security: starttls
       tls:
         ca_bundle_path: "${CA_BUNDLE_PATH}"
@@ -93,8 +100,8 @@ profiles:
     auth:
       mode: app_password
     credentials:
-      username: ""
-      password: ""
+      username: "${IMAP_OPERATIONS_USERNAME}"
+      password: "${IMAP_OPERATIONS_PASSWORD}"
     sync:
       retention:
         max_age_days: 30

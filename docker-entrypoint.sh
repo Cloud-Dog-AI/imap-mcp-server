@@ -40,6 +40,46 @@ export CURL_CA_BUNDLE="${CURL_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}"
 export GIT_SSL_CAINFO="${GIT_SSL_CAINFO:-/etc/ssl/certs/ca-certificates.crt}"
 export NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-/etc/ssl/certs/ca-certificates.crt}"
 
+# ── Durable Gmail OAuth state ───────────────────────────────────
+# The provider callback writes only this 0600 host-mounted sidecar. Reload its
+# allow-listed fields before the runtime environment snapshot is created so a
+# Terraform-managed container replacement keeps using XOAUTH2 without a Vault
+# write or an image/config mutation.
+GMAIL_OAUTH_STATE_FILE="${IMAP_MCP_GMAIL_STATE_FILE:-/app/logs/gmail_oauth_state-gmail_personal.json}"
+if [[ -f "${GMAIL_OAUTH_STATE_FILE}" ]]; then
+  GMAIL_OAUTH_STATE_LOADED=true
+  for key in \
+    IMAP_MCP_GMAIL_USER_EMAIL \
+    IMAP_MCP_GMAIL_REFRESH_TOKEN \
+    IMAP_MCP_GMAIL_REDIRECT_URI \
+    IMAP_MCP_GMAIL_TOKEN_URI \
+    IMAP_MCP_GMAIL_OAUTH_SCOPE \
+    IMAP_MCP_GMAIL_CLIENT_ID; do
+    value="$(python3 - "${GMAIL_OAUTH_STATE_FILE}" "${key}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    value = json.load(handle).get(sys.argv[2], "")
+if isinstance(value, str):
+    sys.stdout.write(value)
+PY
+)" || {
+      echo "[WARN] Gmail OAuth state sidecar could not be read; continuing fail-closed."
+      GMAIL_OAUTH_STATE_LOADED=false
+      break
+    }
+    if [[ -n "${value}" ]]; then
+      export "${key}=${value}"
+    fi
+  done
+  if [[ "${GMAIL_OAUTH_STATE_LOADED}" == "true" ]]; then
+    export GOOGLE_CLIENT_ID="${IMAP_MCP_GMAIL_CLIENT_ID:-${GOOGLE_CLIENT_ID:-}}"
+    export GOOGLE_REDIRECT_URL="${IMAP_MCP_GMAIL_REDIRECT_URI:-${GOOGLE_REDIRECT_URL:-}}"
+    echo "[INFO] Loaded durable Gmail OAuth state for gmail_personal."
+  fi
+fi
+
 API_PORT="${CLOUD_DOG__API_SERVER__PORT:-}"
 if [[ -z "${API_PORT}" && -n "${ENV_FILE:-}" && -f "${ENV_FILE:-}" ]]; then
   API_PORT="$(grep -E '^CLOUD_DOG__API_SERVER__PORT=' "${ENV_FILE}" | tail -n1 | cut -d= -f2- || true)"

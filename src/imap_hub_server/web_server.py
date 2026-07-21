@@ -68,7 +68,9 @@ from imap_hub_server.gmail_admin import (
     MASKED_CLIENT_SECRET,
     begin_oauth,
     complete_oauth_callback,
+    discard_pending,
     load_gmail_client_secret,
+    load_gmail_connection_status,
     load_gmail_profile_values,
     parse_form_urlencoded,
     render_callback_page,
@@ -274,6 +276,21 @@ def create_web_app(env_files: list[str] | None = None) -> FastAPI:
                 return sess
             del _sessions[token]
         return None
+
+    def _require_gmail_admin_session(request: Request) -> dict:
+        """Require an authenticated admin for Gmail setup and status routes.
+
+        The provider callback must remain public because Google redirects the
+        browser to it without a Cloud-Dog session guarantee.  The setup form,
+        status payload and flow-start mutation are operator surfaces and must
+        never be available to anonymous or non-admin callers.
+        """
+        session = _get_session(request)
+        if session is None:
+            raise HTTPException(status_code=401, detail="authentication required")
+        if normalise_flat_role(session.get("role")) != ADMIN_ROLE:
+            raise HTTPException(status_code=403, detail="admin role required")
+        return session
 
     @app.post("/auth/login")
     async def auth_login(request: Request) -> JSONResponse:
@@ -859,6 +876,16 @@ def create_web_app(env_files: list[str] | None = None) -> FastAPI:
             allow_client_auth=not session_proxy_enabled,
         )
 
+    @app.get(join_base_path(web_base_path, "/.well-known/agent.json"), include_in_schema=False)
+    async def proxy_a2a_agent_card(request: Request) -> Response:
+        """Expose the public A2A agent card through the same-origin web listener."""
+        return await _proxy_via(
+            request,
+            proxy=a2a_proxy,
+            path="/.well-known/agent.json",
+            allow_client_auth=False,
+        )
+
     @app.get(join_base_path(web_base_path, "/assets/{asset_path:path}"), include_in_schema=False)
     async def web_asset(asset_path: str) -> FileResponse:
         """Serve vendored SPA static assets."""
@@ -922,6 +949,7 @@ def create_web_app(env_files: list[str] | None = None) -> FastAPI:
     @app.get("/admin/gmail-setup", include_in_schema=False)
     async def gmail_setup_page(request: Request, profile: str | None = None) -> Response:
         """Render the Gmail OAuth setup form."""
+        _require_gmail_admin_session(request)
         callback_url = _compute_callback_url(request)
         profiles = _gmail_profile_names()
         stored = load_gmail_profile_values(config)
@@ -946,6 +974,7 @@ def create_web_app(env_files: list[str] | None = None) -> FastAPI:
     @app.post("/admin/gmail-setup/start", include_in_schema=False)
     async def gmail_setup_start(request: Request) -> Response:
         """Validate fields and return/redirect to Google authorisation URL."""
+        _require_gmail_admin_session(request)
         body = await request.body()
         content_type = request.headers.get("content-type", "").lower()
         if "application/x-www-form-urlencoded" in content_type:
@@ -1004,8 +1033,8 @@ def create_web_app(env_files: list[str] | None = None) -> FastAPI:
         Mirrors file-mcp google_drive_admin.complete_oauth_callback at
         file_mcp_server/server_runtime.py lines 5136-5217 (W28C-433 reference).
         Exchanges the code for tokens at pending.token_uri, fetches the user
-        email via Google userinfo for verification, writes refresh_token to
-        config.yaml plus a /app/logs sidecar for restart survival, then
+        email via Google userinfo for verification, atomically writes the
+        refresh grant to the host-mounted 0600 sidecar, then
         redirects to /gmail-settings with status query params.
         """
         from urllib.parse import urlencode as _urlencode
@@ -1023,20 +1052,20 @@ def create_web_app(env_files: list[str] | None = None) -> FastAPI:
                 "status": "error",
                 "error_message": (message or "")[:300],
             })
-            return _RR(f"/gmail-settings?{params}", status_code=302)
+            return _RR(f"/system/gmail-settings?{params}", status_code=302)
 
         if oauth_error:
+            discard_pending(state)
             return _redirect_error(
                 f"Google returned error: {oauth_error} — {error_description}",
             )
 
         if not state or not code:
+            discard_pending(state)
             return _redirect_error("Missing state or code in callback.")
 
-        # Resolve the active config.yaml path. CLOUD_DOG__CONFIG__YAML env or
-        # common container paths take precedence. The bootstrap config loader
-        # already used one of these; we resolve symbolically here so the
-        # callback works on local-docker and preprod.
+        # Resolve the active immutable config.yaml for traceability only. OAuth
+        # grant state is written exclusively to the host-mounted 0600 sidecar.
         config_path_str = runtime_config_value(config, "CLOUD_DOG__CONFIG__YAML", "CONFIG_YAML")
         if not config_path_str:
             for candidate in ("/app/config.yaml", "/app/config.yml"):
@@ -1078,7 +1107,7 @@ def create_web_app(env_files: list[str] | None = None) -> FastAPI:
             "status": "success",
             "account": result.user_email,
         })
-        return _RR(f"/gmail-settings?{params}", status_code=302)
+        return _RR(f"/system/gmail-settings?{params}", status_code=302)
 
     @app.get("/admin/gmail-setup/status", include_in_schema=False)
     async def gmail_setup_status(request: Request) -> JSONResponse:
@@ -1088,6 +1117,11 @@ def create_web_app(env_files: list[str] | None = None) -> FastAPI:
         token_obtained_at so the SPA GmailSettingsPage can render the
         Connected card without an extra round-trip.
         """
+        _require_gmail_admin_session(request)
+        selected_profile = (
+            request.query_params.get("profile", "").strip()
+            or (_gmail_profile_names()[0] if _gmail_profile_names() else "gmail_personal")
+        )
         stored = load_gmail_profile_values(config)
         has_client_id = bool(stored.get("client_id"))
         has_redirect = bool(stored.get("redirect_uri"))
@@ -1141,6 +1175,18 @@ def create_web_app(env_files: list[str] | None = None) -> FastAPI:
                     break
         except Exception:  # noqa: BLE001
             pass
+
+        # The callback updates a host-mounted 0600 sidecar after the process
+        # config snapshot has already been loaded. Read only redacted status
+        # fields here so the Connected card becomes truthful immediately and
+        # remains truthful after a Terraform container replacement.
+        durable_status = load_gmail_connection_status(selected_profile)
+        if durable_status.get("has_refresh_token"):
+            has_refresh_token = True
+            connected_account_email = str(
+                durable_status.get("connected_account_email", "")
+            )
+            token_obtained_at = str(durable_status.get("token_obtained_at", ""))
 
         return JSONResponse({
             "ok": True,

@@ -1,4 +1,7 @@
+# imap-mcp-server change-watch service.
+
 # Copyright 2026 Cloud-Dog, Viewdeck Engineering Limited
+# imap-mcp-server mail-change service adapter.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,6 +16,8 @@
 # limitations under the License.
 
 """imap-mcp mail-profile change-watch adapter (PS-102 §4.2, CSTREAM-IMAP-001/002).
+
+Requirements: FR-24, FR-25, CS-016.
 
 ``WatchService`` is a *thin adapter* over the common change-stream foundation
 published in ``cloud_dog_api_kit.change_stream`` (PS-102 §9 / RULES §1.4). It:

@@ -1,4 +1,7 @@
+# imap-mcp-server mail change-watch tool handlers.
+
 # Copyright 2026 Cloud-Dog, Viewdeck Engineering Limited
+# imap-mcp-server change-watch surface handlers.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.

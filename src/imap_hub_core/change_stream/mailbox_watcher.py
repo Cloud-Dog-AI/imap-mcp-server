@@ -1,4 +1,7 @@
+# imap-mcp-server mailbox change watcher.
+
 # Copyright 2026 Cloud-Dog, Viewdeck Engineering Limited
+# imap-mcp-server bounded mailbox watcher.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.

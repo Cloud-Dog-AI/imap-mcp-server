@@ -248,7 +248,7 @@ start_server() {
   setsid bash -lc "cd '${SCRIPT_DIR}' && export PYTHONPATH='${PYTHONPATH}' && export PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1 && echo \$\$ > '${pid_file}' && exec '${PYTHON_BIN}' -m '${module}'" >"${log_file}" 2>&1 < /dev/null &
 
   local pid="" attempt
-  for attempt in {1..50}; do
+  for attempt in {1..300}; do
     if [[ -f "${pid_file}" ]]; then
       pid="$(cat "${pid_file}")"
     fi

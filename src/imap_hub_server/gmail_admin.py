@@ -3,7 +3,7 @@
 License: Apache 2.0
 Ownership: Cloud-Dog, Viewdeck Engineering Ltd.
 Description: Handles OAuth start/callback, token exchange, durable sidecar
-persistence, and profile config writes for Gmail IMAP XOAUTH2 authentication.
+persistence, and Gmail IMAP XOAUTH2 authentication.
 Mirrors the File-MCP Google Drive admin canonical pattern at
 file_mcp_server/google_drive_admin.py (W28C-433 evidence).
 """
@@ -24,7 +24,6 @@ import urllib.parse
 import urllib.request
 from urllib.parse import urlencode
 
-from cloud_dog_config.yaml_loader import load_yaml  # type: ignore[import-untyped]
 from cloud_dog_logging import get_logger  # type: ignore[import-untyped]
 
 
@@ -45,9 +44,20 @@ def _env_value(name: str, default: str = "") -> str:
     return str(getattr(_stdlib_os, "environ").get(name, default)).strip()
 
 
+def _safe_file_component(value: str, *, label: str) -> str:
+    candidate = value.strip()
+    if not candidate or any(
+        character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
+        for character in candidate
+    ):
+        raise ValueError(f"Invalid {label}")
+    return candidate
+
+
 def _state_path(profile: str) -> Path:
     base_dir = _env_value("IMAP_MCP_GMAIL_STATE_DIR", _DEFAULT_STATE_DIR)
-    return Path(base_dir) / _STATE_BASENAME_TEMPLATE.format(profile=profile)
+    safe_profile = _safe_file_component(profile, label="Gmail profile")
+    return Path(base_dir) / _STATE_BASENAME_TEMPLATE.format(profile=safe_profile)
 
 
 def _write_state_sidecar(
@@ -55,12 +65,10 @@ def _write_state_sidecar(
     profile: str,
     user_email: str,
     refresh_token: str,
-    access_token: str,
     redirect_uri: str,
     token_uri: str,
     oauth_scope: str,
     client_id: str,
-    client_secret: str,
 ) -> Path:
     """Persist OAuth-sensitive values to a bind-mounted sidecar file.
 
@@ -75,12 +83,10 @@ def _write_state_sidecar(
     payload = {
         "IMAP_MCP_GMAIL_USER_EMAIL": user_email,
         "IMAP_MCP_GMAIL_REFRESH_TOKEN": refresh_token,
-        "IMAP_MCP_GMAIL_ACCESS_TOKEN": access_token,
         "IMAP_MCP_GMAIL_REDIRECT_URI": redirect_uri,
         "IMAP_MCP_GMAIL_TOKEN_URI": token_uri,
         "IMAP_MCP_GMAIL_OAUTH_SCOPE": oauth_scope,
         "IMAP_MCP_GMAIL_CLIENT_ID": client_id,
-        "IMAP_MCP_GMAIL_CLIENT_SECRET": client_secret,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -123,6 +129,7 @@ class GmailBindResult:
     profile: str
     user_email: str
     config_path: str
+    state_path: str
     # Resolved storage/profile dict ready to be persisted into the DB row if
     # the service grows a gmail_profiles table later. For now the YAML write +
     # sidecar are the authoritative persistence.
@@ -140,8 +147,8 @@ def _pending_dir() -> Path:
 
 
 def _pending_path(state: str) -> Path:
-    # state token is high-entropy hex from secrets.token_urlsafe; safe as filename
-    return _pending_dir() / f"{state}.json"
+    safe_state = _safe_file_component(state, label="OAuth state")
+    return _pending_dir() / f"{safe_state}.json"
 
 
 def _persist_pending(state: str, pending: PendingGmailAuth) -> None:
@@ -176,7 +183,7 @@ def _persist_pending(state: str, pending: PendingGmailAuth) -> None:
 def _remove_pending_file(state: str) -> None:
     try:
         _pending_path(state).unlink(missing_ok=True)
-    except OSError:
+    except (OSError, ValueError):
         pass
 
 
@@ -264,6 +271,7 @@ def begin_oauth(data: dict[str, str]) -> str:
 
     if not profile:
         raise ValueError("profile is required")
+    profile = _safe_file_component(profile, label="Gmail profile")
     if not client_id:
         raise ValueError("client_id is required")
     if not client_secret:
@@ -305,6 +313,16 @@ def take_pending(state: str) -> PendingGmailAuth:
         raise RuntimeError("Invalid or expired OAuth state")
     _remove_pending_file(state)
     return pending
+
+
+def discard_pending(state: str) -> None:
+    """Discard provider-denied or otherwise abandoned OAuth state safely."""
+    if not state:
+        return
+    with _PENDING_LOCK:
+        _load_persisted_pending()
+        _PENDING.pop(state, None)
+    _remove_pending_file(state)
 
 
 def _http_post_form(url: str, payload: dict[str, str], *, timeout: float = 30.0) -> dict:
@@ -350,7 +368,35 @@ def _exchange_code(pending: PendingGmailAuth, code: str) -> tuple[str, str]:
     refresh = _clean(str(data.get("refresh_token", "")))
     if not access:
         raise RuntimeError("Token response missing access_token")
+    if not refresh:
+        raise RuntimeError("Token response missing refresh_token")
     return access, refresh
+
+
+def load_gmail_connection_status(profile: str) -> dict[str, object]:
+    """Return redacted durable connection state for one Gmail profile."""
+    result: dict[str, object] = {
+        "has_refresh_token": False,
+        "connected_account_email": "",
+        "token_obtained_at": "",
+    }
+    try:
+        path = _state_path(profile)
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        refresh_token = _clean(str(raw.get("IMAP_MCP_GMAIL_REFRESH_TOKEN", "")))
+        if not refresh_token:
+            return result
+        result["has_refresh_token"] = True
+        result["connected_account_email"] = _clean(
+            str(raw.get("IMAP_MCP_GMAIL_USER_EMAIL", ""))
+        )
+        result["token_obtained_at"] = datetime.fromtimestamp(
+            path.stat().st_mtime,
+            tz=timezone.utc,
+        ).isoformat()
+    except (OSError, ValueError, TypeError):
+        return result
+    return result
 
 
 def _fetch_user_email(access_token: str, *, userinfo_uri: str = DEFAULT_GMAIL_USERINFO_URI) -> str:
@@ -366,57 +412,6 @@ def _fetch_user_email(access_token: str, *, userinfo_uri: str = DEFAULT_GMAIL_US
     return _clean(str(data.get("email", "")))
 
 
-def _update_profile_gmail(
-    *,
-    config_path: Path,
-    profile: str,
-    user_email: str,
-    client_id: str,
-    client_secret: str,
-    refresh_token: str,
-    access_token: str,
-    redirect_uri: str,
-    token_uri: str,
-    oauth_scope: str,
-) -> None:
-    """Write resolved OAuth state into config.yaml profiles.<profile>.auth.oauth.*."""
-    import yaml  # type: ignore[import-untyped]
-
-    raw = load_yaml(str(config_path), missing_ok=True)
-    raw.setdefault("profiles", {})
-    profiles = raw["profiles"]
-    if not isinstance(profiles, dict):
-        raise RuntimeError("profiles is not a mapping")
-    profiles.setdefault(profile, {})
-    prof = profiles[profile]
-    if not isinstance(prof, dict):
-        raise RuntimeError(f"profile {profile} is not a mapping")
-    prof["provider"] = "gmail"
-    auth = prof.setdefault("auth", {})
-    if not isinstance(auth, dict):
-        raise RuntimeError(f"profile {profile}.auth is not a mapping")
-    auth["mode"] = "oauth2"
-    oauth = auth.setdefault("oauth", {})
-    if not isinstance(oauth, dict):
-        raise RuntimeError(f"profile {profile}.auth.oauth is not a mapping")
-    oauth["client_id"] = client_id
-    oauth["client_secret"] = client_secret
-    oauth["redirect_url"] = redirect_uri
-    oauth["redirect_uri"] = redirect_uri
-    oauth["token_uri"] = token_uri
-    oauth["oauth_scope"] = oauth_scope
-    oauth["refresh_token"] = refresh_token
-    oauth["access_token"] = access_token
-    oauth["account_email"] = user_email
-    # Make sure imap host/port are set so config is runtime-valid.
-    imap = prof.setdefault("imap", {})
-    if isinstance(imap, dict):
-        imap.setdefault("host", DEFAULT_GMAIL_IMAP_HOST)
-        imap.setdefault("port", DEFAULT_GMAIL_IMAP_PORT)
-        imap.setdefault("security", "ssl")
-    config_path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
-
-
 def complete_oauth_callback(
     *, state: str, code: str, config_path: Path
 ) -> GmailBindResult:
@@ -426,40 +421,22 @@ def complete_oauth_callback(
     2. _exchange_code(pending, code) — POSTs to pending.token_uri.
     3. _fetch_user_email(access) — verifies identity via userinfo (best-effort;
        falls back to pending.user_email if Google does not return one).
-    4. _update_profile_gmail(...) — writes refresh_token + access_token to
-       config.yaml.
-    5. _write_state_sidecar(...) — durable sidecar on /app/logs for
-       docker-entrypoint to re-export on restart.
+    4. _write_state_sidecar(...) — atomically writes the durable refresh grant
+       to the host-mounted 0600 state path. Image-owned config.yaml remains
+       immutable and no client secret or short-lived access token is persisted.
     """
     pending = take_pending(state)
     access_token, refresh_token = _exchange_code(pending, code)
     user_email = _fetch_user_email(access_token) or pending.user_email
-    _update_profile_gmail(
-        config_path=config_path,
+    state_path = _write_state_sidecar(
         profile=pending.profile,
         user_email=user_email,
-        client_id=pending.client_id,
-        client_secret=pending.client_secret,
         refresh_token=refresh_token,
-        access_token=access_token,
         redirect_uri=pending.redirect_uri,
         token_uri=pending.token_uri,
         oauth_scope=pending.oauth_scope,
+        client_id=pending.client_id,
     )
-    try:
-        _write_state_sidecar(
-            profile=pending.profile,
-            user_email=user_email,
-            refresh_token=refresh_token,
-            access_token=access_token,
-            redirect_uri=pending.redirect_uri,
-            token_uri=pending.token_uri,
-            oauth_scope=pending.oauth_scope,
-            client_id=pending.client_id,
-            client_secret=pending.client_secret,
-        )
-    except OSError:
-        pass
     profile_dict = {
         "provider": "gmail",
         "imap": {
@@ -476,9 +453,8 @@ def complete_oauth_callback(
                 "redirect_url": pending.redirect_uri,
                 "token_uri": pending.token_uri,
                 "oauth_scope": pending.oauth_scope,
-                "refresh_token": refresh_token,
-                "access_token": access_token,
                 "account_email": user_email,
+                "connected": True,
             },
         },
     }
@@ -486,6 +462,7 @@ def complete_oauth_callback(
         profile=pending.profile,
         user_email=user_email,
         config_path=str(config_path),
+        state_path=str(state_path),
         profile_dict=profile_dict,
     )
 

@@ -57,6 +57,11 @@ case "${VARIANT}" in
     ;;
 esac
 
+# W28A-SEC-R17: no hardcoded internal registry base image. Default to the public
+# upstream base; the build environment may override PYTHON_BASE_IMAGE (e.g. a dev
+# build supplying an internal registry.<host>/python-runtime reference).
+PYTHON_BASE_IMAGE="${PYTHON_BASE_IMAGE:-python:3.13-slim}"
+
 if [[ ! -f "${DOCKERFILE}" ]]; then
   echo "ERROR: ${DOCKERFILE} not found (variant=${VARIANT})" >&2
   exit 2
@@ -95,6 +100,15 @@ ACME_CA_CERT="${ACME_CA_CERT:-}"
 echo "=========================================="
 echo "Docker Build: ${FOLDER}/${CONTAINER}:${EFFECTIVE_TAG} (variant=${VARIANT}, dockerfile=${DOCKERFILE})"
 echo "=========================================="
+
+# W28A-SEC-R17: adopt git-mcp's shape — REGISTRY defaults to empty (see above);
+# only prefix the internal registry when the build environment supplies it. No
+# hardcoded registry.<host> default reaches the committed source.
+if [[ "${VARIANT}" == "dev" && -n "${REGISTRY}" ]]; then
+  IMAGE_REF="${REGISTRY}/${FOLDER}/${CONTAINER}:${EFFECTIVE_TAG}"
+else
+  IMAGE_REF="${FOLDER}/${CONTAINER}:${EFFECTIVE_TAG}"
+fi
 
 # ── PyPI Configuration (PS-97 v1.1 §4 / §3.3 strict-single-index) ─
 # The active package index is supplied by the build environment:
@@ -146,7 +160,14 @@ chmod 600 "${CA_BUNDLE_FILE}"
 # ── Build ────────────────────────────────────────────────────────
 # ── W28C-1719 publish-before-pin guard + build-provenance revision label (fail-closed) ──
 _PBP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-"${_PBP_DIR}/scripts/publish-before-pin-guard.sh" "${_PBP_DIR}" || exit $?
+# W28A-SEC-R18: the publish-before-pin guard is INTERNAL CI build-guard tooling
+# (it resolves internal cloud-dog-* pins from the single internal index) and is
+# intentionally excluded from the public source mirror. Run it only when present
+# (internal developer checkout); the public/anonymous build has no internal pins
+# to guard, so its absence must not fail the hermetic public build.
+if [[ -x "${_PBP_DIR}/scripts/publish-before-pin-guard.sh" ]]; then
+  "${_PBP_DIR}/scripts/publish-before-pin-guard.sh" "${_PBP_DIR}" || exit $?
+fi
 _PBP_REV="$(git -C "${_PBP_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
 # W28E-1863 fix-wave-d (WSC-014): propagate build identity to the image so the
 # Dockerfile can stamp OCI labels + runtime ENV for build_identity() / /version.
@@ -171,19 +192,18 @@ DOCKER_BUILDKIT=1 docker buildx build \
   --build-arg SOURCE_COMMIT="${SOURCE_COMMIT}" \
   --build-arg SOURCE_BRANCH="${SOURCE_BRANCH}" \
   --build-arg BUILD_DATE="${BUILD_DATE}" \
-  -t "${FOLDER}/${CONTAINER}:${EFFECTIVE_TAG}" \
+  --build-arg PYTHON_BASE_IMAGE="${PYTHON_BASE_IMAGE}" \
+  -t "${IMAGE_REF}" \
   . 2>&1 | tee docker-build.log
 
 BUILD_STATUS=${PIPESTATUS[0]}
 
 if [[ ${BUILD_STATUS} -eq 0 ]]; then
-  echo "Build OK: ${FOLDER}/${CONTAINER}:${EFFECTIVE_TAG} (variant=${VARIANT})"
-  if [[ "${VARIANT}" == "dev" && -n "${REGISTRY}" && -z "${PUBLICATION_TAG_SUFFIX}" ]]; then
-    docker tag "${FOLDER}/${CONTAINER}:${EFFECTIVE_TAG}" \
-      "${REGISTRY}/${FOLDER}/${CONTAINER}:${EFFECTIVE_TAG}"
-    echo "Tagged: ${REGISTRY}/${FOLDER}/${CONTAINER}:${EFFECTIVE_TAG}"
-  elif [[ -n "${PUBLICATION_TAG_SUFFIX}" ]]; then
+  echo "Build OK: ${IMAGE_REF} (variant=${VARIANT})"
+  if [[ -n "${PUBLICATION_TAG_SUFFIX}" ]]; then
     echo "Registry tag skipped for publication suffix '${PUBLICATION_TAG_SUFFIX}'."
+  elif [[ "${VARIANT}" == "dev" ]]; then
+    echo "Internal registry reference ready: ${IMAGE_REF}"
   else
     echo "Public variant built; internal registry tag skipped (PS-97 §1.1.3 closed-loop)."
   fi

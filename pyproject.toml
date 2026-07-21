@@ -6,21 +6,22 @@ authors = [
 name = "imap-mcp-server"
 version = "0.1.1RC1"
 description = "Multi-profile IMAP MCP server with local cache, search ledger, optional indexing and archiving."
+readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-  "cloud_dog_config==0.3.4",
-  "cloud_dog_logging>=0.4.1",
+  "cloud_dog_config[vault]==0.3.5",
+  "cloud_dog_logging==0.4.1",
   # W28E-1870-D: cross-service change-streaming foundation (PS-102). The
   # ``change-stream-db`` extra pulls the durable ``SqlJournal`` deps (already
   # satisfied by cloud_dog_db + SQLAlchemy). The imap-mcp mail-profile
   # change-watch adapter CONSUMES this foundation (WatchCoordinator + SqlJournal
   # + ChangeEvent + cursor codec + make_broadcast_hook + error model) — it does
   # NOT reimplement journal/cursor/queue/broadcaster/auth (RULES §1.4 / PS-102 §9).
-  "cloud_dog_api_kit[change-stream-db]>=0.14.0",
-  "cloud_dog_idam==0.5.3",
-  "cloud_dog_llm==0.4.0",
-  "cloud_dog_jobs>=0.4.2",
-  "cloud_dog_db>=0.3.2",
+  "cloud_dog_api_kit[change-stream-db]==0.14.1",
+  "cloud_dog_idam==0.5.4",
+  "cloud_dog_llm==0.4.1",
+  "cloud_dog_jobs==0.4.4",
+  "cloud_dog_db==0.3.3",
   "cloud-dog-storage==0.1.8",
   "pydantic>=2.7",
   "pyyaml>=6.0",
