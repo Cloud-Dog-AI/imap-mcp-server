@@ -21,4 +21,6 @@ if [[ -z "${API_PORT}" && -n "${ENV_FILE}" && -f "${ENV_FILE}" ]]; then
   API_PORT="$(grep -E '^CLOUD_DOG__API_SERVER__PORT=' "${ENV_FILE}" | tail -n1 | cut -d= -f2- || true)"
 fi
 : "${API_PORT:?CLOUD_DOG__API_SERVER__PORT must be set}"
-curl -fsS "http://127.0.0.1:${API_PORT}/health" >/dev/null
+# W28A-SEC-R18 hardening: probe with python urllib (always present) instead of
+# curl, so the curl/libcurl packages can be purged from the runtime image.
+exec python3 -c "import sys,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+sys.argv[1]+'/health', timeout=4)" "${API_PORT}"

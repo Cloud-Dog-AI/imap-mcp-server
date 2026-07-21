@@ -181,7 +181,7 @@ case "${1:-all}" in
     /app/server_control.sh ${ENV_ARGS[@]+"${ENV_ARGS[@]}"} start api
     sleep 5
     : "${API_PORT:?CLOUD_DOG__API_SERVER__PORT must be set for test mode}"
-    if curl -fs "http://127.0.0.1:${API_PORT}/health" >/dev/null; then
+    if python3 -c "import sys,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+sys.argv[1]+'/health', timeout=4)" "${API_PORT}" >/dev/null 2>&1; then
       echo "HEALTH CHECK PASSED"
       /app/server_control.sh ${ENV_ARGS[@]+"${ENV_ARGS[@]}"} stop all
       exit 0

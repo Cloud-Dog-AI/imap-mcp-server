@@ -51,8 +51,11 @@ ARG HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy
 ENV HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} NO_PROXY=${NO_PROXY} \
     http_proxy=${http_proxy} https_proxy=${https_proxy} no_proxy=${no_proxy}
 
+# W28A-SEC-R18 hardening: install only what the runtime needs (ca-certificates
+# for TLS trust). curl/procps/net-tools were removed — the health probe and
+# server control use python (urllib/socket) instead of external CLIs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl netcat-openbsd procps net-tools \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Public runtime — no private CA overlay.
@@ -81,6 +84,26 @@ RUN mkdir -p /app/logs /app/data/audit /app/data/downloads /app/data/archive /ap
 
 RUN useradd --system --create-home --uid 10001 appuser && \
     chown -R appuser:appuser /app
+
+# W28A-SEC-R18 hardening: purge runtime-unused base-OS packages that carry
+# fixable CVEs (curl/libcurl, perl, gzip, net-tools, procps, openssh-client).
+# The service uses NONE of them at runtime — healthcheck.sh and the entrypoint
+# probe /health with python urllib; server_control.sh checks listeners with
+# python sockets and uses ss/pgrep only opportunistically with graceful
+# fallbacks. Only packages actually installed are purged (dpkg-query guard);
+# --allow-remove-essential lets perl-base go (nothing here needs it).
+RUN set -eux; \
+    PURGE="curl libcurl3t64-gnutls libcurl4t64 openssh-client net-tools procps perl perl-base perl-modules-5.40 libperl5.40 gzip"; \
+    TO_PURGE=""; \
+    for p in $PURGE; do \
+      if dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'install ok installed'; then \
+        TO_PURGE="$TO_PURGE $p"; \
+      fi; \
+    done; \
+    if [ -n "$TO_PURGE" ]; then apt-get purge -y --allow-remove-essential $TO_PURGE; fi; \
+    apt-get autoremove -y --purge; \
+    rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*
+
 USER appuser
 
 ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app/src
